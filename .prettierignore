@@ -1,0 +1,17 @@
+node_modules
+dist
+.tools
+src-tauri/target
+src-tauri/gen
+src/bindings/generated
+public/ocr
+public/fonts
+public/pdf
+src-tauri/icons
+package-lock.json
+Cargo.lock
+src-tauri/Cargo.lock
+test-results
+playwright-report
+*.tsbuildinfo
+public/licenses

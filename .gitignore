@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.tools/
+src-tauri/target/
+playwright-report/
+test-results/
+public/ocr/*
+public/fonts/*
+!public/ocr/.gitkeep
+.env*
+*.sqlite*
+.DS_Store
+public/pdf/
+*.tsbuildinfo
+src-tauri/gen/
+public/licenses/

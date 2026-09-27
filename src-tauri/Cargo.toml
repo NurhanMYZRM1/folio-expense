@@ -1,0 +1,58 @@
+[package]
+name = "folio-expense"
+version = "0.1.0"
+description = "Local-first corporate expense claims"
+authors = ["Folio"]
+edition = "2021"
+rust-version = "1.90"
+default-run = "folio-expense"
+[lib]
+name = "folio"
+crate-type = ["staticlib", "cdylib", "rlib"]
+[[bin]]
+name = "folio-expense"
+path = "src/main.rs"
+required-features = ["desktop"]
+[[bin]]
+name = "export-bindings"
+path = "src/bin/export_bindings.rs"
+required-features = ["bindings"]
+[features]
+default = ["desktop"]
+test-support = []
+bindings = []
+desktop = ["dep:tauri", "dep:tauri-plugin-dialog", "dep:tauri-plugin-deep-link", "dep:tauri-plugin-single-instance", "dep:tauri-build"]
+[build-dependencies]
+tauri-build = { version = "2", features = [], optional = true }
+[dependencies]
+tauri = { version = "2", features = [], optional = true }
+tauri-plugin-dialog = { version = "2", optional = true }
+tauri-plugin-deep-link = { version = "2", optional = true }
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"], optional = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+rusqlite = { version = "0.37", features = ["bundled"] }
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+sha2 = "0.10"
+base64 = "0.22"
+ts-rs = { version = "11", features = ["serde-json-impl", "no-serde-warnings"] }
+keyring = { version = "3", features = ["apple-native", "windows-native"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+regex = "1"
+zeroize = "1"
+open = "5"
+[dev-dependencies]
+tempfile = "3"
+
+[[bin]]
+name = "test-driver"
+path = "src/bin/test_driver.rs"
+required-features = ["test-support"]
+
+[[bin]]
+name = "platform-verify"
+path = "src/bin/platform_verify.rs"
+required-features = ["test-support"]
