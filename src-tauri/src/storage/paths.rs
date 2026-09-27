@@ -15,7 +15,14 @@ impl AppPaths {
             use std::os::unix::fs::PermissionsExt;
             fs::set_permissions(&root, fs::Permissions::from_mode(0o700))?;
         }
-        for folder in ["database", "receipts", "exports/claims", "cache", "logs"] {
+        for folder in [
+            "database",
+            "receipts",
+            "exports/claims",
+            "exports/csv",
+            "cache",
+            "logs",
+        ] {
             fs::create_dir_all(root.join(folder))?;
         }
         Ok(Self {

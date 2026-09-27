@@ -362,3 +362,120 @@ fn old_reports_and_failed_jobs_remain_reachable_after_queue_rollover() {
     assert!(jobs.iter().any(|job| job.id == "old-report"));
     assert!(jobs.iter().any(|job| job.id == "old-failure"));
 }
+#[test]
+fn csv_export_claim_orders_receipt_refs_like_pdf_and_sums_amounts() {
+    let (t, s) = workspace();
+    let receipted_id = import(&t, &s);
+    let mut receipted_edit = edit(&s, &receipted_id);
+    receipted_edit.occurred_at = Some("2026-09-10".into());
+    receipted_edit.merchant_name = Some("Receipted Cafe".into());
+    receipted_edit.total_amount_minor = Some(1000);
+    receipted_edit.tax_amount_minor = Some(0);
+    s.edit_expense(receipted_edit).unwrap();
+    let manual_id = s.create_expense().unwrap().id;
+    let mut manual_edit = edit(&s, &manual_id);
+    manual_edit.occurred_at = Some("2026-09-25".into());
+    manual_edit.merchant_name = Some("Manual Entry".into());
+    manual_edit.total_amount_minor = Some(2000);
+    manual_edit.tax_amount_minor = Some(0);
+    s.edit_expense(manual_edit).unwrap();
+    let claim = s.create_claim("Trip".into(), "MYR".into()).unwrap();
+    s.set_claim_expense(&claim.id, &receipted_id, true).unwrap();
+    s.set_claim_expense(&claim.id, &manual_id, true).unwrap();
+    let export = s.export_claim_csv(&claim.id).unwrap();
+    assert_eq!(export.rows, 2);
+    assert_eq!(
+        export.file_name,
+        format!("Folio-{}.csv", claim.claim_number)
+    );
+    let bytes = fs::read(&export.path).unwrap();
+    assert_eq!(&bytes[..3], [0xEF, 0xBB, 0xBF]);
+    let text = String::from_utf8(bytes[3..].to_vec()).unwrap();
+    let lines: Vec<&str> = text.trim_end_matches("\r\n").split("\r\n").collect();
+    assert_eq!(lines.len(), 3);
+    // Newest occurred_at sorts first, matching the PDF/claim expense order.
+    let manual_cells: Vec<&str> = lines[1].split(',').collect();
+    assert_eq!(
+        manual_cells[2], "",
+        "manual expense has a blank Receipt Ref"
+    );
+    assert_eq!(manual_cells[4], "Manual Entry");
+    assert_eq!(manual_cells[8], "20.00");
+    let receipted_cells: Vec<&str> = lines[2].split(',').collect();
+    assert_eq!(receipted_cells[2], "R002");
+    assert_eq!(receipted_cells[4], "Receipted Cafe");
+    assert_eq!(receipted_cells[8], "10.00");
+}
+#[test]
+fn csv_export_formats_by_currency_exponent_dedupes_and_rejects_unknown_ids() {
+    let (_t, s) = workspace();
+    let jpy_id = s.create_expense().unwrap().id;
+    let mut jpy_edit = edit(&s, &jpy_id);
+    jpy_edit.currency = Some("JPY".into());
+    jpy_edit.total_amount_minor = Some(1500);
+    jpy_edit.tax_amount_minor = Some(0);
+    s.edit_expense(jpy_edit).unwrap();
+    let bhd_id = s.create_expense().unwrap().id;
+    let mut bhd_edit = edit(&s, &bhd_id);
+    bhd_edit.currency = Some("BHD".into());
+    bhd_edit.total_amount_minor = Some(12345);
+    bhd_edit.tax_amount_minor = Some(5);
+    s.edit_expense(bhd_edit).unwrap();
+    let export = s
+        .export_expenses_csv(vec![jpy_id.clone(), bhd_id.clone()])
+        .unwrap();
+    let bytes = fs::read(&export.path).unwrap();
+    let text = String::from_utf8(bytes[3..].to_vec()).unwrap();
+    assert!(text.contains(",JPY,1500,0,"));
+    assert!(text.contains(",BHD,12.345,0.005,"));
+    let dedup = s
+        .export_expenses_csv(vec![jpy_id.clone(), jpy_id.clone()])
+        .unwrap();
+    assert_eq!(dedup.rows, 1);
+    assert!(s.export_expenses_csv(vec![]).is_err());
+    let unknown = uuid::Uuid::new_v4().to_string();
+    assert_eq!(
+        s.export_expenses_csv(vec![unknown]).unwrap_err().code,
+        "NotFound"
+    );
+    assert_eq!(
+        s.export_claim_csv(&uuid::Uuid::new_v4().to_string())
+            .unwrap_err()
+            .code,
+        "NotFound"
+    );
+}
+#[test]
+fn csv_export_copies_to_export_directory_and_reports_conflicts() {
+    let (t, s) = workspace();
+    let id = s.create_expense().unwrap().id;
+    s.edit_expense(edit(&s, &id)).unwrap();
+    let claim = s.create_claim("September".into(), "MYR".into()).unwrap();
+    s.set_claim_expense(&claim.id, &id, true).unwrap();
+    let export_dir = t.path().join("exports-out");
+    fs::create_dir_all(&export_dir).unwrap();
+    let mut settings = s.settings().unwrap();
+    settings.export_directory = Some(export_dir.to_string_lossy().to_string());
+    s.save_settings(settings).unwrap();
+    let export = s.export_claim_csv(&claim.id).unwrap();
+    let copy_path = export_dir.join(&export.file_name);
+    assert!(copy_path.exists());
+    assert_eq!(
+        fs::read(&copy_path).unwrap(),
+        fs::read(&export.path).unwrap()
+    );
+    assert_eq!(s.csv_export_path(&export.id).unwrap(), export.path);
+    assert_eq!(
+        s.csv_export_path(&uuid::Uuid::new_v4().to_string())
+            .unwrap_err()
+            .code,
+        "NotFound"
+    );
+    assert_eq!(
+        s.csv_export_path("not-a-uuid").unwrap_err().code,
+        "ValidationError"
+    );
+    let err = s.export_claim_csv(&claim.id).unwrap_err();
+    assert_eq!(err.code, "ExportCopyError");
+    assert!(err.message.contains("Local copy:"));
+}

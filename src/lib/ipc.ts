@@ -4,6 +4,7 @@ import type {
   Claim,
   ClaimDetail,
   ClaimStatus,
+  CsvExport,
   Expense,
   ExpenseEdit,
   ExportSnapshot,
@@ -64,4 +65,7 @@ export const api = {
   completePdf: (id: string, token: string, base64: string) =>
     call<string>('complete_pdf', { id, token, base64 }),
   openExport: (id: string) => call<void>('open_export', { id }),
+  exportClaimCsv: (id: string) => call<CsvExport>('export_claim_csv', { id }),
+  exportExpensesCsv: (ids: string[]) => call<CsvExport>('export_expenses_csv', { ids }),
+  openCsvExport: (id: string) => call<void>('open_csv_export', { id }),
 };

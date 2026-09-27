@@ -17,3 +17,4 @@ export type ClaimDetail = { claim: Claim, expenses: Array<Expense>, };
 export type ExportSnapshot = { claim: Claim, expenses: Array<Expense>, receipts: Array<ReceiptFile>, company: string, employee: string, includeReceipts: boolean, generatedAt: string, };
 export type Settings = { theme: string, defaultCurrency: string, onlineEnabled: boolean, provider: string, apiBaseUrl: string, aiModel: string, offlineOcrEnabled: boolean, exportDirectory: string | null, includeReceipts: boolean, company: string, employee: string, };
 export type AppInfo = { dataDirectory: string, version: string, credentialConfigured: boolean, };
+export type CsvExport = { id: string, fileName: string, path: string, rows: number, };
