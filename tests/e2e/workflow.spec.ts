@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { PDFDocument, PDFName, PDFArray, StandardFonts } from 'pdf-lib';
 import { RustBridge, installBridge } from '../bridge';
-import type { Expense, Claim, Job } from '../../src/bindings/generated';
+import type { Expense, Claim, Job, CsvExport } from '../../src/bindings/generated';
 test('offline receipt → real Rust/SQLite → OCR → review → claim → PDF → reopen', async ({
   page,
 }, testInfo) => {
@@ -111,6 +111,17 @@ test('offline receipt → real Rust/SQLite → OCR → review → claim → PDF 
     expect(pdf.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray).size()).toBeGreaterThan(0);
     await writeFile(testInfo.outputPath('claim.pdf'), bytes);
     await writeFile(testInfo.outputPath('receipt.png'), original);
+    await page.getByRole('button', { name: 'Export CSV' }).click();
+    await expect(page.getByRole('button', { name: 'Open CSV' })).toBeVisible();
+    await expect(
+      page.locator('.inline-export-note', { hasText: `Folio-${claim.claimNumber}.csv` }),
+    ).toBeVisible();
+    const csvExport = await bridge.call<CsvExport>('export_claim_csv', { id: claim.id });
+    expect(csvExport.fileName).toBe(`Folio-${claim.claimNumber}.csv`);
+    const csvText = (await readFile(csvExport.path)).toString('utf-8');
+    expect(csvText).toContain('Kopi House · client lunch');
+    expect(csvText).toContain('84.50');
+    await writeFile(testInfo.outputPath('claim.csv'), csvText);
     while (await page.getByRole('button', { name: 'Dismiss notification' }).count())
       await page.getByRole('button', { name: 'Dismiss notification' }).first().click();
     await page.screenshot({ path: testInfo.outputPath('claim-detail.png'), fullPage: true });

@@ -26,14 +26,21 @@ function Thumbnail({ id }: { id: string }) {
     <FileText size={16} />
   );
 }
+export type ExpenseSelection = {
+  selected: Set<string>;
+  onToggle: (id: string) => void;
+  onToggleAll: (checked: boolean) => void;
+};
 export function ExpenseTable({
   expenses,
   compact = false,
   actions,
+  selection,
 }: {
   expenses: Expense[];
   compact?: boolean;
   actions?: (e: Expense) => React.ReactNode;
+  selection?: ExpenseSelection;
 }) {
   if (!expenses.length)
     return (
@@ -47,11 +54,26 @@ export function ExpenseTable({
         }
       />
     );
+  const allVisibleSelected = !!selection && expenses.every((e) => selection.selected.has(e.id));
+  const someVisibleSelected = !!selection && expenses.some((e) => selection.selected.has(e.id));
   return (
     <div className="table-wrap">
       <table className="data-table">
         <thead>
           <tr>
+            {selection && (
+              <th className="checkbox-cell">
+                <input
+                  type="checkbox"
+                  aria-label="Select all visible expenses"
+                  checked={allVisibleSelected}
+                  ref={(el) => {
+                    if (el) el.indeterminate = someVisibleSelected && !allVisibleSelected;
+                  }}
+                  onChange={(e) => selection.onToggleAll(e.target.checked)}
+                />
+              </th>
+            )}
             <th>Date</th>
             <th>Merchant / expense</th>
             <th>Category</th>
@@ -66,6 +88,16 @@ export function ExpenseTable({
         <tbody>
           {expenses.map((e) => (
             <tr key={e.id}>
+              {selection && (
+                <td className="checkbox-cell">
+                  <input
+                    type="checkbox"
+                    aria-label={`Select ${e.merchantName || 'expense'}`}
+                    checked={selection.selected.has(e.id)}
+                    onChange={() => selection.onToggle(e.id)}
+                  />
+                </td>
+              )}
               <td className="date-cell">{dateLabel(e.occurredAt)}</td>
               <td>
                 <Link className="merchant" to={`/expenses/${e.id}`}>

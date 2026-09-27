@@ -99,6 +99,11 @@ fn dispatch(s: &AppService, command: &str, a: Value) -> Result<Value> {
                 .ok_or_else(|| AppError::invalid("Expected string"))?
         )),
         "open_export" => out!(s.export_path(id())),
+        "export_claim_csv" => out!(s.export_claim_csv(id())),
+        "export_expenses_csv" => out!(s.export_expenses_csv(arg!("ids"))),
+        // Mirrors the "open_export" test shim: never launches the system app in tests,
+        // just resolves the file path so tests can read the CSV directly.
+        "open_csv_export" => out!(s.csv_export_path(id())),
         _ => Err(AppError::invalid("Unknown test command.")),
     }
 }

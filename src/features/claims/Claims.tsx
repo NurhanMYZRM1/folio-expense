@@ -12,6 +12,7 @@ import {
   RotateCcw,
   Save,
   FileText,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { PageHeader, Panel, StatusBadge, EmptyState, Loading } from '../../components/ui';
 import { ExpenseTable } from '../../components/ExpenseTable';
@@ -20,7 +21,7 @@ import { api } from '../../lib/ipc';
 import { errorMessage } from '../../lib/errors';
 import { CURRENCIES, formatMoney } from '../../lib/money';
 import { dateLabel } from '../../lib/constants';
-import type { ClaimDetail as Detail, ClaimStatus } from '../../bindings/generated';
+import type { ClaimDetail as Detail, ClaimStatus, CsvExport } from '../../bindings/generated';
 export function Claims() {
   const { claims, settings, notify, refresh } = useWorkspace();
   const navigate = useNavigate();
@@ -140,7 +141,9 @@ export function ClaimDetail() {
     [title, setTitle] = useState(''),
     [description, setDescription] = useState(''),
     [busy, setBusy] = useState(false),
-    [adding, setAdding] = useState(false);
+    [adding, setAdding] = useState(false),
+    [csvBusy, setCsvBusy] = useState(false),
+    [csvExport, setCsvExport] = useState<CsvExport | null>(null);
   async function load() {
     if (!id) return;
     try {
@@ -184,6 +187,18 @@ export function ClaimDetail() {
         : 'Claim status updated.',
     );
   }
+  async function exportCsv() {
+    setCsvBusy(true);
+    try {
+      const csv = await api.exportClaimCsv(claim.id);
+      setCsvExport(csv);
+      notify(`Saved ${csv.fileName}.`);
+    } catch (e) {
+      notify(errorMessage(e), true);
+    } finally {
+      setCsvBusy(false);
+    }
+  }
   return (
     <>
       <Link className="back-link" to="/claims">
@@ -210,6 +225,27 @@ export function ClaimDetail() {
               <Download size={16} />
               {exporting ? 'Generating PDF…' : 'Export PDF'}
             </button>
+            <button
+              className="button secondary"
+              disabled={busy || csvBusy || !claim.expenseCount}
+              onClick={() => void exportCsv()}
+            >
+              <FileSpreadsheet size={16} />
+              {csvBusy ? 'Exporting CSV…' : 'Export CSV'}
+            </button>
+            {csvExport && (
+              <span className="inline-export-note">
+                Saved {csvExport.fileName} ·{' '}
+                <button
+                  className="text-button"
+                  onClick={() =>
+                    void api.openCsvExport(csvExport.id).catch((e) => notify(errorMessage(e), true))
+                  }
+                >
+                  Open CSV
+                </button>
+              </span>
+            )}
           </>
         }
       />
