@@ -9,8 +9,8 @@ use crate::{
     repository::{self, expense_repository as expenses},
     services::{
         extraction::{
-            normalizer, offline::LocalOcrExtractor, online::OnlineVisionExtractor, ExtractionInput,
-            ReceiptExtractor,
+            normalizer, offline::LocalOcrExtractor, online::OnlineVisionExtractor, sanitize,
+            ExtractionInput, ReceiptExtractor,
         },
         AppService,
     },
@@ -240,9 +240,12 @@ impl AppService {
         source: FieldSource,
         raw_text: Option<String>,
     ) -> Result<()> {
-        normalizer::validate(&result)?;
         let mut db = self.conn()?;
         let tx = db.transaction()?;
+        let settings = Self::settings_in(&tx)?;
+        let today = chrono::Local::now().date_naive();
+        let result = sanitize::sanitize(result, &settings.default_currency, today);
+        normalizer::validate(&result)?;
         let job = lease(&tx, id, token, Some("extract_receipt"))?;
         let mut e = expenses::get(&tx, &job.entity_id)?;
         if matches!(e.status, ExpenseStatus::Submitted | ExpenseStatus::Archived) {
