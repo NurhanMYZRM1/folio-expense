@@ -323,4 +323,35 @@ describe('claim PDF', () => {
     expect(destPageRef(backLinks[0])?.toString()).toBe(pdf.getPage(0).ref.toString());
     expect(pageText(pdf, 2)).toContain('Back to summary');
   });
+  it('links each expense to its own receipt appendix, not another expense in the same claim', async () => {
+    const s = fixture();
+    s.includeReceipts = true;
+    s.expenses = [
+      { ...s.expenses[0], id: 'e1', receiptId: 'r1', merchantName: 'Kopi House' },
+      { ...s.expenses[0], id: 'e2', receiptId: 'r2', merchantName: 'Grocer' },
+    ];
+    s.receipts = [
+      { ...s.receipts[0], id: 'r1' },
+      { ...s.receipts[0], id: 'r2' },
+    ];
+    const r1 = await makeImageReceipt();
+    const r2 = await makeImageReceipt();
+    r2.receipt.id = 'r2';
+    const data = await generateClaimPdf(s, [r1, r2], await loadFont());
+    const pdf = await PDFDocument.load(data);
+    expect(pdf.getPageCount()).toBe(4); // summary, register, appendix r1, appendix r2
+    const appendixR1 = pdf.getPage(2),
+      appendixR2 = pdf.getPage(3);
+    const destLinks = linkAnnotations(pdf.getPage(0))
+      .filter((a) => a.has(PDFName.of('Dest')))
+      .map((a) => destPageRef(a)?.toString());
+    expect(destLinks).toEqual([appendixR1.ref.toString(), appendixR2.ref.toString()]);
+    // Each appendix page's "Back to summary" link still points at the one
+    // summary page (both rows fit on page 0), not at each other's page.
+    for (const page of [appendixR1, appendixR2]) {
+      const back = linkAnnotations(page).filter((a) => a.has(PDFName.of('Dest')));
+      expect(back).toHaveLength(1);
+      expect(destPageRef(back[0])?.toString()).toBe(pdf.getPage(0).ref.toString());
+    }
+  });
 });
