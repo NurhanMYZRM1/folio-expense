@@ -44,9 +44,13 @@ export async function generateClaimPdf(
   // Deferred internal links: the destination page may not exist yet when the
   // link's source is drawn, so we collect targets during layout and resolve
   // them once every page has been created.
+  // Keyed by the expense's position in snapshot.expenses — the same identity
+  // the R001… labels use — not by receiptId, since two expenses may share a
+  // receiptId (e.g. a split bill) and would otherwise overwrite each other's
+  // target, mislinking one row's summary cell to another expense's appendix.
   const pendingDestLinks: { page: PDFPage; rect: Rect; target: () => PDFPage | undefined }[] = [];
-  const registerPageByReceipt = new Map<string, PDFPage>();
-  const appendixFirstPageByReceipt = new Map<string, PDFPage>();
+  const registerPageByIndex = new Map<number, PDFPage>();
+  const appendixFirstPageByIndex = new Map<number, PDFPage>();
   const summaryPageByIndex = new Map<number, PDFPage>();
   const text = (value: string, x: number, top: number, size = 10, color = ink) =>
     page.drawText(value, { x, y: top, size, font, color });
@@ -122,7 +126,7 @@ export async function generateClaimPdf(
     suffix: string,
     isFirstPage: boolean,
   ) {
-    if (isFirstPage) appendixFirstPageByReceipt.set(receiptId, page);
+    if (isFirstPage) appendixFirstPageByIndex.set(index, page);
     text(shorten(`${label}${suffix}`, 360, 11), margin, y, 11);
     const backLabel = 'Back to summary';
     const backX = width - margin - font.widthOfTextAtSize(backLabel, 9);
@@ -214,14 +218,13 @@ export async function generateClaimPdf(
       e.receiptId ? green : gray,
     );
     if (e.receiptId) {
-      const receiptId = e.receiptId;
       pendingDestLinks.push({
         page,
         rect: [colReceipt - 4, y - 4, width - margin, y + 12],
         target: () =>
           snapshot.includeReceipts
-            ? appendixFirstPageByReceipt.get(receiptId)
-            : registerPageByReceipt.get(receiptId),
+            ? appendixFirstPageByIndex.get(index)
+            : registerPageByIndex.get(index),
       });
     }
     y -= Math.max(42, merchant.length * 12 + 25);
@@ -253,7 +256,7 @@ export async function generateClaimPdf(
     );
     y -= 16;
     if (e.receiptId) {
-      registerPageByReceipt.set(e.receiptId, page);
+      registerPageByIndex.set(index, page);
       const filename = e.receiptFilename || 'Receipt';
       const lines = wrap(filename, 500, 8);
       const top = y;

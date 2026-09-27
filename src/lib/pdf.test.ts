@@ -354,4 +354,58 @@ describe('claim PDF', () => {
       expect(destPageRef(back[0])?.toString()).toBe(pdf.getPage(0).ref.toString());
     }
   });
+  // Regression test: registerPageByIndex/appendixFirstPageByIndex were
+  // previously keyed by receiptId, so two expenses sharing one receiptId
+  // (e.g. a split bill) would have the second expense's page silently
+  // overwrite the first's map entry, mislinking both summary rows to the
+  // second expense's appendix/register page.
+  it('regression: two expenses sharing one receiptId each link to their own appendix page', async () => {
+    const s = fixture();
+    s.includeReceipts = true;
+    s.expenses = [
+      { ...s.expenses[0], id: 'e1', receiptId: 'r1', merchantName: 'Kopi House' },
+      { ...s.expenses[0], id: 'e2', receiptId: 'r1', merchantName: 'Split Bill Co' },
+    ];
+    // Both expenses reference the same underlying receipt file.
+    const data = await generateClaimPdf(s, [await makePdfReceipt(1)], await loadFont());
+    const pdf = await PDFDocument.load(data);
+    expect(pdf.getPageCount()).toBe(4); // summary, register, appendix e1, appendix e2
+    const appendixE1 = pdf.getPage(2),
+      appendixE2 = pdf.getPage(3);
+    const destLinks = linkAnnotations(pdf.getPage(0))
+      .filter((a) => a.has(PDFName.of('Dest')))
+      .map((a) => destPageRef(a)?.toString());
+    expect(destLinks).toEqual([appendixE1.ref.toString(), appendixE2.ref.toString()]);
+    expect(destLinks[0]).not.toBe(destLinks[1]);
+  });
+  it('regression: two expenses sharing one receiptId each link to their own register page when receipts are not included', async () => {
+    const s = fixture();
+    s.includeReceipts = false;
+    // A very long, many-word filename forces the first expense's register
+    // entry to overflow onto its own page, so the second expense's entry
+    // (sharing the same receiptId) lands on a distinct continuation page —
+    // otherwise both entries would coincidentally share one page and the
+    // receiptId-keyed bug wouldn't be observable in this assertion.
+    const hugeFilename = Array.from({ length: 4000 }, (_, i) => `part${i}`).join(' ');
+    s.expenses = [
+      {
+        ...s.expenses[0],
+        id: 'e1',
+        receiptId: 'r1',
+        merchantName: 'Kopi House',
+        receiptFilename: hugeFilename,
+      },
+      { ...s.expenses[0], id: 'e2', receiptId: 'r1', merchantName: 'Split Bill Co' },
+    ];
+    const data = await generateClaimPdf(s, [], await loadFont());
+    const pdf = await PDFDocument.load(data);
+    expect(pdf.getPageCount()).toBe(3); // summary, register (e1's huge filename), register continuation (e2)
+    const registerE1 = pdf.getPage(1),
+      registerE2 = pdf.getPage(2);
+    expect(registerE1.ref.toString()).not.toBe(registerE2.ref.toString());
+    const destLinks = linkAnnotations(pdf.getPage(0))
+      .filter((a) => a.has(PDFName.of('Dest')))
+      .map((a) => destPageRef(a)?.toString());
+    expect(destLinks).toEqual([registerE1.ref.toString(), registerE2.ref.toString()]);
+  });
 });
