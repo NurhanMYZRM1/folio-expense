@@ -189,7 +189,10 @@ test('multi-page PDF receipt renders and extracts entirely offline', async ({ pa
       true,
     );
     await page.goto(`/#/expenses/${expense.id}`);
-    await expect(page.getByRole('img', { name: 'Preview of hotel-receipt.pdf' })).toBeVisible();
+    // Rendering waits for the pdf.js worker, which cold CI dev servers can take seconds to serve.
+    await expect(page.getByRole('img', { name: 'Preview of hotel-receipt.pdf' })).toBeVisible({
+      timeout: 30_000,
+    });
     await expect(page.getByText('1 / 2', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Next receipt page' }).click();
     await expect(page.getByText('2 / 2', { exact: true })).toBeVisible();
