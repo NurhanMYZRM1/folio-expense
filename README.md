@@ -27,10 +27,10 @@ npm run desktop
 
 1. Open **Import receipts** and drop or choose PNG, JPG, JPEG, or PDF files.
 2. Originals are copied to app-owned storage. Exact duplicates offer **Open existing expense** or cancellation.
-3. Bundled Tesseract OCR reads receipts in the background. Review uncertain fields alongside the receipt preview.
+3. Bundled Tesseract OCR reads receipts in the background (online AI extraction, when enabled, is tried first). Review uncertain fields alongside the receipt preview: numeric dates are read day-first (DD/MM/YYYY) unless the receipt's currency is USD, which reads month-first, and a date that is still ambiguous either way is kept but flagged **Verify**. Currency symbols map to ISO codes (`RM` → MYR, `S$` → SGD, `US$` → USD, `€` → EUR, `£` → GBP, `¥` → JPY unless a China cue such as `CN¥` is present, `₹` → INR, `฿` → THB, `Rp` → IDR, `₩` → KRW). A single field that can't be read is cleared rather than discarding the rest of the extraction.
 4. Edit merchant, date, total, tax, currency, category, and business purpose; choose **Mark as ready**.
 5. Create a claim, select its currency, and add ready expenses. Each expense can belong to one claim.
-6. Export a PDF. Reports include a summary, receipt reference register, and optional receipt appendix.
+6. Export a PDF, a CSV, or both. PDF reports include a summary, receipt reference register, and optional receipt appendix; each summary row's `RECEIPT` cell links internally to that receipt's register or appendix page, and the receipt file name on the register and appendix pages additionally carries a hidden `expenseapp://receipt/<id>` deep link for PDF readers that support custom-scheme links. **Export CSV** is available for a whole claim (claim detail, next to **Export PDF**) or for a hand-picked set of expenses (select rows in the expenses list); CSV files are Excel-friendly (UTF-8 with a BOM, comma-separated, CRLF line endings).
 7. Reopen expenses, claims, and generated reports later without a connection.
 
 Marking a claim submitted only updates local status; it does not send a report to anyone. Submitted/archived claim expenses are locked until the claim is reopened.
@@ -45,11 +45,14 @@ expense-app/
   receipts/<uuid>/original.<extension>
   receipts/<uuid>/preview.webp
   exports/claims/<export-job-uuid>.pdf
+  exports/csv/<export-uuid>.csv
   cache/
   logs/
 ```
 
 The app displays the actual data location in Settings. The database contains relative receipt paths, not source paths. SQLite uses foreign keys, WAL, full synchronous commits, migrations, and transactional audit events. Unix app storage is owner-only. On Windows it inherits the current user's AppData ACLs. Receipt/database content is **not additionally encrypted at rest**; use FileVault or BitLocker and a protected OS account where required.
+
+If an export directory is configured in Settings, exporting a CSV also copies a human-named file there (`Folio-<claim number>.csv` for a claim, `Folio-expenses-<date>.csv` for a selected-expenses export). Exporting again after the same name is already taken there — for example after editing an expense and re-exporting — does not fail: it retries with ` (2)`, ` (3)`, and so on inserted before `.csv` until a free name is found.
 
 For a backup, close Folio and copy the entire `expense-app` directory, including any SQLite WAL files. Restore with the app closed. API keys stay in the OS vault and are not part of this backup. Cloud sync is not implemented or required.
 

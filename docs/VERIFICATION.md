@@ -6,26 +6,28 @@ Run date: 27 September 2026. Host: Apple Silicon (`arm64`), macOS 26.6.2, Node 2
 
 Prettier and Rust formatting checks also passed.
 
-| Check                                                     | Result                                          |
-| --------------------------------------------------------- | ----------------------------------------------- |
-| Strict TypeScript and Vite production build               | Passed                                          |
-| Rust SQLite/domain/storage/service tests                  | 17 passed                                       |
-| TypeScript money and PDF tests                            | 8 passed                                        |
-| Browser + real Rust/SQLite integration                    | 2 passed                                        |
-| Rust Clippy, all default-feature targets, warnings denied | Passed                                          |
-| Dependency audit (`npm audit`)                            | 0 reported vulnerabilities at verification time |
-| Rust Clippy, `test-support` targets, warnings denied      | Passed                                          |
-| macOS Keychain (`platform-verify keychain`)               | Passed                                          |
-| macOS Apple Silicon release packaging                     | `.app` and `.dmg` built                         |
-| macOS native release smoke test                           | Passed                                          |
-| Live online AI extraction (Google Gemini)                 | Passed                                          |
-| Windows build / native smoke test                         | Not executed here; CI matrix provided           |
+| Check                                                                                | Result                                          |
+| ------------------------------------------------------------------------------------ | ----------------------------------------------- |
+| Strict TypeScript and Vite production build                                          | Passed                                          |
+| Rust unit + integration tests (`cargo test`)                                         | 73 passed (52 unit, 21 integration)             |
+| TypeScript unit tests (money, receipt image pre-processing, PDF)                     | 20 passed                                       |
+| CSV export tests (Rust unit + integration, plus the E2E export step)                 | Passed                                          |
+| PDF internal receipt-link tests (summary/register/appendix links, hidden deep links) | Passed                                          |
+| Browser + real Rust/SQLite integration                                               | 2 passed                                        |
+| Rust Clippy, all default-feature targets, warnings denied                            | Passed                                          |
+| Dependency audit (`npm audit`)                                                       | 0 reported vulnerabilities at verification time |
+| Rust Clippy, `test-support` targets, warnings denied                                 | Passed                                          |
+| macOS Keychain (`platform-verify keychain`)                                          | Passed                                          |
+| macOS Apple Silicon release packaging                                                | `.app` and `.dmg` built                         |
+| macOS native release smoke test                                                      | Passed                                          |
+| Live online AI extraction (Google Gemini)                                            | Passed                                          |
+| Windows build / native smoke test                                                    | Not executed here; CI matrix provided           |
 
-The first end-to-end test imports a generated PNG through the app's picker boundary, copies it through the real Rust ingestion service, runs bundled Tesseract OCR, detects a duplicate, changes fields, marks the expense ready, creates a claim, produces an actual three-page PDF, checks receipt links and totals, searches expenses, restarts Rust, and verifies the same records and manual provenance remain. The original file's bytes are unchanged.
+The first end-to-end test imports a generated PNG through the app's picker boundary, copies it through the real Rust ingestion service, runs bundled Tesseract OCR, detects a duplicate, changes fields, marks the expense ready, creates a claim, produces an actual three-page PDF, checks receipt links and totals, exports the claim to CSV and verifies the file exists with the expected merchant and amount, searches expenses, restarts Rust, and verifies the same records and manual provenance remain. The original file's bytes are unchanged.
 
 The second test imports a two-page PDF, locally renders both pages, extracts the real total with Tesseract, navigates the PDF viewer, and generates a four-page report with both original receipt pages embedded. Both tests block external browser requests and assert that none were attempted. No credential, cloud database, CDN, or production data is involved. The test bridge runs real application services; native window/dialog mechanics are tested separately.
 
-Rust coverage includes migrations and constraints, exact money/currency precision, file signatures and size limits, duplicate hashing, relative paths and symlink confinement, state transitions, same-currency claim totals/membership, strict extraction validation, manual edits and manual clears, optimistic edit conflicts, interrupted jobs and stale leases, WebKit PNG-to-WebP thumbnail conversion, credential exclusion/endpoint changes, and old report visibility after queue rollover.
+Rust coverage includes migrations and constraints, exact money/currency precision, file signatures and size limits, duplicate hashing, relative paths and symlink confinement, state transitions, same-currency claim totals/membership, strict extraction validation, manual edits and manual clears, optimistic edit conflicts, interrupted jobs and stale leases, WebKit PNG-to-WebP thumbnail conversion, credential exclusion/endpoint changes, and old report visibility after queue rollover. It also covers extraction field sanitisation for both the offline OCR and online AI paths (currency symbol and month-name/date normalisation in English and Malay, day-first-except-USD date resolution, confidence clean-up down to exactly the expected fields, a hostile-input case that must still satisfy the same validation the worker applies), the online provider's printed-currency/date override rules (an unambiguous printed symbol wins, a bare `¥` or `$` defers to the model's own currency when that is already consistent with the symbol), and CSV export (column order and formatting, RFC 4180 quoting and formula-injection guarding, per-currency decimal exponents, and retrying with a `(2)`, `(3)`, … suffix when the export directory already has a file with that name).
 
 ## Native macOS observations
 
@@ -39,7 +41,7 @@ The final release was rebuilt after the credential-store change below and instal
 
 `platform-verify keychain` is a feature-gated binary (`--features test-support`) that is not included in desktop bundles. It uses the same `SecretStore` operations as production, against a disposable `com.folio.expenses.verification` Keychain entry with a random UUID account, so the user's real credential is never read or replaced. It checks create, read, persistence across a separate process (compared by SHA-256, never printed), replace, delete, and idempotent delete. It passed on this Mac and the temporary entry was removed.
 
-`platform-verify ai <synthetic-receipt.png>` runs a live extraction against the endpoint and model saved in Folio's Settings, using the credential stored through Settings. It passed against Google Gemini's OpenAI-compatible endpoint (`https://generativelanguage.googleapis.com/v1beta/openai`, model `gemini-3.8-flash`): the synthetic receipt returned schema-valid structured data with MYR 84.50. An earlier attempt against OpenAI returned HTTP 429 (no API credit) and Folio reported the planned local-OCR fallback message. Google no longer offers `gemini-2.5-flash` to new accounts (HTTP 404). Keys are entered only in **Folio → Settings → API credential**. To repeat the check:
+`platform-verify ai <synthetic-receipt.png>` runs a live extraction against the endpoint and model saved in Folio's Settings, using the credential stored through Settings. It passed against Google Gemini's OpenAI-compatible endpoint (`https://generativelanguage.googleapis.com/v1beta/openai`, model `gemini-3.8-flash`): the synthetic receipt returned schema-valid structured data with MYR 84.50. It was re-run after this pass's extraction prompt and response-parsing changes (the system/user prompt split, the `dateAsPrinted`/`currencyAsPrinted` fields, and the printed-currency override fix) and passed again with the same result. An earlier attempt against OpenAI returned HTTP 429 (no API credit) and Folio reported the planned local-OCR fallback message. Google no longer offers `gemini-2.5-flash` to new accounts (HTTP 404). Keys are entered only in **Folio → Settings → API credential**. To repeat the check:
 
 ```sh
 cargo run --manifest-path src-tauri/Cargo.toml --no-default-features --features test-support --bin platform-verify ai <synthetic-receipt.png>
