@@ -234,7 +234,7 @@ export function Expenses() {
             <span>{selected.size} selected</span>
             <button
               className="button primary small"
-              disabled={csvBusy}
+              disabled={csvBusy || xlsxBusy}
               onClick={() => void exportSelectedCsv()}
             >
               <FileSpreadsheet size={14} />
@@ -242,7 +242,7 @@ export function Expenses() {
             </button>
             <button
               className="button secondary small"
-              disabled={xlsxBusy}
+              disabled={csvBusy || xlsxBusy}
               onClick={() => void exportSelectedXlsx()}
             >
               <FileSpreadsheet size={14} />

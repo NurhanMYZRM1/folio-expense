@@ -241,7 +241,7 @@ export function ClaimDetail() {
             </button>
             <button
               className="button secondary"
-              disabled={busy || csvBusy || !claim.expenseCount}
+              disabled={busy || csvBusy || xlsxBusy || !claim.expenseCount}
               onClick={() => void exportCsv()}
             >
               <FileSpreadsheet size={16} />
@@ -249,7 +249,7 @@ export function ClaimDetail() {
             </button>
             <button
               className="button secondary"
-              disabled={busy || xlsxBusy || !claim.expenseCount}
+              disabled={busy || csvBusy || xlsxBusy || !claim.expenseCount}
               onClick={() => void exportXlsx()}
             >
               <FileSpreadsheet size={16} />

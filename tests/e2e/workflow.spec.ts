@@ -122,6 +122,19 @@ test('offline receipt → real Rust/SQLite → OCR → review → claim → PDF 
     expect(csvText).toContain('Kopi House · client lunch');
     expect(csvText).toContain('84.50');
     await writeFile(testInfo.outputPath('claim.csv'), csvText);
+    await page.getByRole('button', { name: 'Export Excel' }).click();
+    await expect(page.getByRole('button', { name: 'Open Excel' })).toBeVisible();
+    await expect(
+      page.locator('.inline-export-note', { hasText: `Folio-${claim.claimNumber}.xlsx` }),
+    ).toBeVisible();
+    const xlsxExport = await bridge.call<CsvExport>('export_claim_xlsx', { id: claim.id });
+    expect(xlsxExport.fileName).toBe(`Folio-${claim.claimNumber}.xlsx`);
+    expect(await bridge.call<string>('open_xlsx_export', { id: xlsxExport.id })).toBe(
+      xlsxExport.path,
+    );
+    const xlsxBytes = await readFile(xlsxExport.path);
+    expect(xlsxBytes.subarray(0, 2).toString('latin1')).toBe('PK');
+    await writeFile(testInfo.outputPath('claim.xlsx'), xlsxBytes);
     while (await page.getByRole('button', { name: 'Dismiss notification' }).count())
       await page.getByRole('button', { name: 'Dismiss notification' }).first().click();
     await page.screenshot({ path: testInfo.outputPath('claim-detail.png'), fullPage: true });
