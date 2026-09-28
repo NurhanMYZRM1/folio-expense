@@ -105,6 +105,14 @@ const ADDRESS_PATTERN: &str = r"(?i)\b\d{5}\b|\bJALAN\b|\bJLN\b|\bSTREET\b|\bROA
 const BOILERPLATE_PATTERN: &str = r"(?i)\bRECEIPT\b|\bINVOICE\b|TAX INVOICE|\bWELCOME\b|THANK YOU|CASH SALE|\bOFFICIAL\b|\bCOPY\b";
 const TIME_PATTERN: &str = r"\b\d{1,2}:\d{2}\b";
 const SUFFIX_PATTERN: &str = r"(?i)SDN\.?\s*BHD\.?|\bBHD\b|\bENTERPRISE\b|\bTRADING\b|\bRESTAURANT\b|\bCAFE\b|PTE\.?\s*LTD\.?|\bLLC\b|\bINC\b";
+/// Legal-entity suffixes only. A line carrying one is the registered company
+/// name, which a separately printed brand line should beat. Business-type
+/// words such as CAFE or RESTAURANT are deliberately excluded: they are part
+/// of brand names ("CAFE AMAZON").
+const REGISTERED_ENTITY_PATTERN: &str =
+    r"(?i)SDN\.?\s*BHD\.?|\bBHD\b|PTE\.?\s*LTD\.?|\bLTD\b|\bLLC\b|\bINC\b|\bBERHAD\b";
+/// Staff, till and table labels printed near the header; never a merchant.
+const STAFF_LABEL_PATTERN: &str = r"(?i)^\s*(CASHIER|SERVER|STAFF|OPERATOR|WAITER|WAITRESS|TABLE|TERMINAL|POS|COUNTER|TILL|PAX|MEMBER|LOYALTY)\b";
 
 pub struct LocalOcrExtractor;
 
@@ -193,6 +201,8 @@ impl LocalOcrExtractor {
         let address_re = re(ADDRESS_PATTERN)?;
         let boilerplate_re = re(BOILERPLATE_PATTERN)?;
         let suffix_re = re(SUFFIX_PATTERN)?;
+        let entity_re = re(REGISTERED_ENTITY_PATTERN)?;
+        let staff_re = re(STAFF_LABEL_PATTERN)?;
         let currency_amount_re = re(
             r"(?i)(?:RM|MYR|USD|SGD|EUR|GBP|AUD|CAD|CHF|CNY|HKD|INR|THB|IDR|JPY|KRW|KWD|OMR|US\$|S\$|Rp|[€£₹฿₩¥$])\s*\d",
         )?;
@@ -210,9 +220,12 @@ impl LocalOcrExtractor {
                     && !address_re.is_match(line)
                     && !boilerplate_re.is_match(line)
                     && !currency_amount_re.is_match(line)
+                    && !staff_re.is_match(line)
             })
             .collect();
-        let brand_line = candidates.iter().find(|line| !suffix_re.is_match(line));
+        // A brand line printed alongside the registered company wins; the
+        // registered name is used only when nothing else survives filtering.
+        let brand_line = candidates.iter().find(|line| !entity_re.is_match(line));
         let chosen_line = brand_line.or_else(|| candidates.first());
         let (merchant, merchant_has_suffix) = match chosen_line {
             Some(line) => (
@@ -332,6 +345,29 @@ TOTAL RM13.25";
         assert_eq!(out.date.as_deref(), Some("2026-09-27"));
         assert_eq!(out.currency.as_deref(), Some("MYR"));
         assert_eq!(out.total_amount_minor, Some(1325));
+    }
+
+    #[test]
+    fn descriptor_merchant_is_not_displaced_by_a_later_staff_line() {
+        let text = "\
+CAFE AMAZON
+CASHIER JOHN
+27/09/2026 08:15
+TOTAL RM9.50";
+        let out = run(text, "MYR");
+        assert_eq!(out.merchant_name.as_deref(), Some("CAFE AMAZON"));
+    }
+
+    #[test]
+    fn staff_and_table_labels_above_the_company_are_never_the_merchant() {
+        let text = "\
+CASHIER JOHN
+TABLE 12
+ABC TRADING SDN BHD
+27/09/2026 08:15
+TOTAL RM9.50";
+        let out = run(text, "MYR");
+        assert_eq!(out.merchant_name.as_deref(), Some("ABC TRADING SDN BHD"));
     }
 
     #[test]
