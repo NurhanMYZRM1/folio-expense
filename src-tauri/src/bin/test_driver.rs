@@ -104,6 +104,9 @@ fn dispatch(s: &AppService, command: &str, a: Value) -> Result<Value> {
         // Mirrors the "open_export" test shim: never launches the system app in tests,
         // just resolves the file path so tests can read the CSV directly.
         "open_csv_export" => out!(s.csv_export_path(id())),
+        "export_claim_xlsx" => out!(s.export_claim_xlsx(id())),
+        "export_expenses_xlsx" => out!(s.export_expenses_xlsx(arg!("ids"))),
+        "open_xlsx_export" => out!(s.xlsx_export_path(id())),
         _ => Err(AppError::invalid("Unknown test command.")),
     }
 }
