@@ -93,6 +93,20 @@ fn money_cell(minor: Option<i64>, currency: &str) -> String {
         Some(m) => format_money(m, currency_exponent(currency).unwrap_or(2)),
     }
 }
+/// The maximum number of collision-avoidance attempts tried against the
+/// export directory: the base name, then ` (2)` through ` (999)`.
+const MAX_EXPORT_COLLISION_ATTEMPTS: u32 = 999;
+/// Builds the `n`th candidate file name for the export directory: `n == 1`
+/// is the base human file name, `n >= 2` inserts ` (n)` before `.csv`.
+fn export_candidate_name(file_name: &str, n: u32) -> String {
+    if n <= 1 {
+        return file_name.to_string();
+    }
+    match file_name.strip_suffix(".csv") {
+        Some(stem) => format!("{stem} ({n}).csv"),
+        None => format!("{file_name} ({n})"),
+    }
+}
 fn render(rows: &[CsvRow]) -> Vec<u8> {
     let mut out = vec![0xEF, 0xBB, 0xBF];
     let header = HEADER
@@ -237,23 +251,42 @@ impl AppService {
         tx.commit()?;
         drop(db);
         let settings = self.settings()?;
+        let mut exported_file_name = file_name;
         if let Some(folder) = settings.export_directory {
-            let destination = std::path::Path::new(&folder).join(&file_name);
-            let external = (|| -> std::io::Result<()> {
-                let mut file = fs::OpenOptions::new()
-                    .write(true)
-                    .create_new(true)
-                    .open(&destination)?;
-                file.write_all(&bytes)?;
-                file.sync_all()
-            })();
-            if external.is_err() {
-                return Err(AppError::new("ExportCopyError",format!("The CSV is saved in Folio, but could not be copied to the export directory. Local copy: {}",path.display())));
+            let dir = std::path::Path::new(&folder);
+            let mut written = None;
+            for attempt in 1..=MAX_EXPORT_COLLISION_ATTEMPTS {
+                let candidate = export_candidate_name(&exported_file_name, attempt);
+                let destination = dir.join(&candidate);
+                let outcome = (|| -> std::io::Result<()> {
+                    let mut file = fs::OpenOptions::new()
+                        .write(true)
+                        .create_new(true)
+                        .open(&destination)?;
+                    file.write_all(&bytes)?;
+                    file.sync_all()
+                })();
+                match outcome {
+                    Ok(()) => {
+                        written = Some(candidate);
+                        break;
+                    }
+                    // Re-exporting after an earlier export already wrote this
+                    // name: try the next `(n)` suffix instead of failing.
+                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(_) => break,
+                }
+            }
+            match written {
+                Some(name) => exported_file_name = name,
+                None => {
+                    return Err(AppError::new("ExportCopyError",format!("The CSV is saved in Folio, but could not be copied to the export directory. Local copy: {}",path.display())));
+                }
             }
         }
         Ok(CsvExport {
             id: export_id,
-            file_name,
+            file_name: exported_file_name,
             path: path.to_string_lossy().to_string(),
             rows: rows.len() as u32,
         })

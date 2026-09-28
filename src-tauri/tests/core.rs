@@ -496,7 +496,30 @@ fn csv_export_copies_to_export_directory_and_reports_conflicts() {
         s.csv_export_path("not-a-uuid").unwrap_err().code,
         "ValidationError"
     );
-    let err = s.export_claim_csv(&claim.id).unwrap_err();
-    assert_eq!(err.code, "ExportCopyError");
-    assert!(err.message.contains("Local copy:"));
+
+    // Re-exporting after the expense changes must not fail just because the
+    // export directory already has a file with that name: it should retry
+    // with a " (2)" suffix instead, and the returned `file_name` must match
+    // what actually landed in the export directory.
+    let mut change = edit(&s, &id);
+    change.total_amount_minor = Some(9999);
+    s.edit_expense(change).unwrap();
+    let export2 = s.export_claim_csv(&claim.id).unwrap();
+    assert_ne!(export2.file_name, export.file_name);
+    assert!(
+        export2.file_name.ends_with(" (2).csv"),
+        "expected a \" (2).csv\" suffix, got {}",
+        export2.file_name
+    );
+    let copy_path2 = export_dir.join(&export2.file_name);
+    assert!(copy_path.exists(), "the first export's copy must remain");
+    assert!(
+        copy_path2.exists(),
+        "the second export must land in a distinct file"
+    );
+    let second_contents = String::from_utf8(fs::read(&copy_path2).unwrap()).unwrap();
+    assert!(
+        second_contents.contains("99.99"),
+        "the second copy must contain the updated amount"
+    );
 }
