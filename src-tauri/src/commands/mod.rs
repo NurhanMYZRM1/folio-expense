@@ -6,6 +6,7 @@ use std::sync::Arc;
 use tauri::{Runtime, State};
 mod claims;
 mod expenses;
+mod exports;
 mod jobs;
 mod receipts;
 mod settings;
@@ -42,6 +43,9 @@ pub fn handler<R: Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + 
         claims::transition_claim,
         claims::request_pdf,
         claims::open_export,
+        exports::export_claim_csv,
+        exports::export_expenses_csv,
+        exports::open_csv_export,
         settings::get_settings,
         settings::save_settings,
         settings::app_info,

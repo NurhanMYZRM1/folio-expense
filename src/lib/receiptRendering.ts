@@ -52,6 +52,45 @@ export async function imageCanvas(
   bitmap.close();
   return canvas;
 }
+function percentileLevel(histogram: Uint32Array, pixelCount: number, p: number): number {
+  const target = Math.floor(p * (pixelCount - 1));
+  let cumulative = 0;
+  for (let level = 0; level < 256; level++) {
+    cumulative += histogram[level];
+    if (cumulative > target) return level;
+  }
+  return 255;
+}
+export function enhanceForOcr(data: Uint8ClampedArray): void {
+  const pixelCount = data.length / 4;
+  const gray = new Uint8ClampedArray(pixelCount);
+  const histogram = new Uint32Array(256);
+  for (let i = 0; i < pixelCount; i++) {
+    const o = i * 4;
+    const level = Math.round(0.299 * data[o] + 0.587 * data[o + 1] + 0.114 * data[o + 2]);
+    gray[i] = level;
+    histogram[gray[i]]++;
+  }
+  const low = percentileLevel(histogram, pixelCount, 0.02);
+  const high = percentileLevel(histogram, pixelCount, 0.98);
+  const range = high - low;
+  const stretch = range >= 16;
+  const scale = 255 / range;
+  for (let i = 0; i < pixelCount; i++) {
+    const o = i * 4;
+    const value = stretch ? Math.round((gray[i] - low) * scale) : gray[i];
+    data[o] = data[o + 1] = data[o + 2] = value < 0 ? 0 : value > 255 ? 255 : value;
+    data[o + 3] = 255;
+  }
+}
+export function preprocessCanvas(canvas: HTMLCanvasElement): HTMLCanvasElement {
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Unable to preprocess this receipt image.');
+  const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+  enhanceForOcr(imageData.data);
+  context.putImageData(imageData, 0, 0);
+  return canvas;
+}
 export async function* receiptPages(
   content: ReceiptContent,
   limit = 2200,

@@ -1,12 +1,21 @@
 import { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Search, Upload, Plus, ChevronLeft, ChevronRight, SlidersHorizontal } from 'lucide-react';
+import {
+  Search,
+  Upload,
+  Plus,
+  ChevronLeft,
+  ChevronRight,
+  SlidersHorizontal,
+  FileSpreadsheet,
+} from 'lucide-react';
 import { useWorkspace } from '../../app/providers';
 import { PageHeader } from '../../components/ui';
 import { ExpenseTable } from '../../components/ExpenseTable';
 import { CATEGORIES, STATUS_LABELS } from '../../lib/constants';
 import { api } from '../../lib/ipc';
 import { errorMessage } from '../../lib/errors';
+import type { CsvExport } from '../../bindings/generated';
 export function Expenses() {
   const { expenses, notify, refresh } = useWorkspace();
   const navigate = useNavigate(),
@@ -18,6 +27,9 @@ export function Expenses() {
     [to, setTo] = useState(''),
     [sort, setSort] = useState('date-desc'),
     [page, setPage] = useState(1);
+  const [selected, setSelected] = useState<Set<string>>(new Set()),
+    [csvBusy, setCsvBusy] = useState(false),
+    [lastCsv, setLastCsv] = useState<CsvExport | null>(null);
   const filtered = expenses
     .filter(
       (e) =>
@@ -42,9 +54,12 @@ export function Expenses() {
     );
   const pages = Math.max(1, Math.ceil(filtered.length / 25)),
     currentPage = Math.min(page, pages);
+  const visible = filtered.slice((currentPage - 1) * 25, currentPage * 25);
   function change(fn: (v: string) => void, value: string) {
     fn(value);
     setPage(1);
+    setSelected(new Set());
+    setLastCsv(null);
   }
   async function create() {
     try {
@@ -53,6 +68,40 @@ export function Expenses() {
       navigate(`/expenses/${e.id}`);
     } catch (e) {
       notify(errorMessage(e), true);
+    }
+  }
+  function toggleOne(id: string) {
+    setSelected((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  function toggleAllVisible(checked: boolean) {
+    setSelected((s) => {
+      const next = new Set(s);
+      for (const e of visible) {
+        if (checked) next.add(e.id);
+        else next.delete(e.id);
+      }
+      return next;
+    });
+  }
+  function clearSelection() {
+    setSelected(new Set());
+    setLastCsv(null);
+  }
+  async function exportSelected() {
+    setCsvBusy(true);
+    try {
+      const csv = await api.exportExpensesCsv([...selected]);
+      setLastCsv(csv);
+      notify(`Saved ${csv.fileName} · ${csv.rows} expenses.`);
+    } catch (e) {
+      notify(errorMessage(e), true);
+    } finally {
+      setCsvBusy(false);
     }
   }
   return (
@@ -154,6 +203,8 @@ export function Expenses() {
                 setFrom('');
                 setTo('');
                 setPage(1);
+                setSelected(new Set());
+                setLastCsv(null);
               }}
             >
               Clear filters
@@ -161,8 +212,40 @@ export function Expenses() {
           )}
           <span className="result-count">{filtered.length} expenses</span>
         </div>
+        {selected.size > 0 && (
+          <div className="selection-bar">
+            <span>{selected.size} selected</span>
+            <button
+              className="button primary small"
+              disabled={csvBusy}
+              onClick={() => void exportSelected()}
+            >
+              <FileSpreadsheet size={14} />
+              {csvBusy ? 'Exporting…' : 'Export CSV'}
+            </button>
+            {lastCsv && (
+              <span className="inline-export-note">
+                Saved {lastCsv.fileName} ·{' '}
+                <button
+                  className="text-button"
+                  onClick={() =>
+                    void api.openCsvExport(lastCsv.id).catch((e) => notify(errorMessage(e), true))
+                  }
+                >
+                  Open CSV
+                </button>
+              </span>
+            )}
+            <button className="text-button" onClick={clearSelection}>
+              Clear selection
+            </button>
+          </div>
+        )}
         {filtered.length ? (
-          <ExpenseTable expenses={filtered.slice((currentPage - 1) * 25, currentPage * 25)} />
+          <ExpenseTable
+            expenses={visible}
+            selection={{ selected, onToggle: toggleOne, onToggleAll: toggleAllVisible }}
+          />
         ) : (
           <div className="empty-state">
             <Search size={26} />

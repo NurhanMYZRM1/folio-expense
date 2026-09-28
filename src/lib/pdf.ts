@@ -15,6 +15,7 @@ const ink = rgb(0.12, 0.17, 0.2),
   gray = rgb(0.42, 0.47, 0.49),
   green = rgb(0.15, 0.39, 0.32),
   line = rgb(0.86, 0.89, 0.9);
+type Rect = [number, number, number, number];
 export async function generateClaimPdf(
   snapshot: ExportSnapshot,
   receipts: ReceiptContent[],
@@ -30,8 +31,27 @@ export async function generateClaimPdf(
   const width = 595.28,
     height = 841.89,
     margin = 42;
+  // Summary table columns (x positions), fitted within [margin, width - margin].
+  const colDate = margin + 8,
+    colMerchant = margin + 58,
+    colMerchantW = 140,
+    colCategory = margin + 204,
+    colCategoryW = 80,
+    colAmountRight = margin + 388,
+    colReceipt = margin + 396;
   let page!: PDFPage,
     y = height - margin;
+  // Deferred internal links: the destination page may not exist yet when the
+  // link's source is drawn, so we collect targets during layout and resolve
+  // them once every page has been created.
+  // Keyed by the expense's position in snapshot.expenses — the same identity
+  // the R001… labels use — not by receiptId, since two expenses may share a
+  // receiptId (e.g. a split bill) and would otherwise overwrite each other's
+  // target, mislinking one row's summary cell to another expense's appendix.
+  const pendingDestLinks: { page: PDFPage; rect: Rect; target: () => PDFPage | undefined }[] = [];
+  const registerPageByIndex = new Map<number, PDFPage>();
+  const appendixFirstPageByIndex = new Map<number, PDFPage>();
+  const summaryPageByIndex = new Map<number, PDFPage>();
   const text = (value: string, x: number, top: number, size = 10, color = ink) =>
     page.drawText(value, { x, y: top, size, font, color });
   function shorten(value: string, maxWidth: number, size: number, face: PDFFont = font) {
@@ -54,6 +74,15 @@ export async function generateClaimPdf(
     }
     return result;
   }
+  function annotate(target: PDFPage, rect: Rect, extra: Record<string, unknown>) {
+    const annotation = doc.context.register(
+      doc.context.obj({ Type: 'Annot', Subtype: 'Link', Rect: rect, Border: [0, 0, 0], ...extra }),
+    );
+    target.node.addAnnot(annotation);
+  }
+  function uriLink(target: PDFPage, rect: Rect, uri: string) {
+    annotate(target, rect, { A: { Type: 'Action', S: 'URI', URI: PDFString.of(uri) } });
+  }
   function newPage(title: string) {
     page = doc.addPage([width, height]);
     y = height - margin;
@@ -75,13 +104,47 @@ export async function generateClaimPdf(
       height: 27,
       color: rgb(0.95, 0.96, 0.96),
     });
-    [
-      ['DATE', margin + 8],
-      ['MERCHANT / CATEGORY', margin + 84],
-      ['AMOUNT', margin + 326],
-      ['RECEIPT', margin + 434],
-    ].forEach(([s, x]) => text(s as string, x as number, y - 14, 8, gray));
+    const headers: [string, number, boolean][] = [
+      ['DATE', colDate, false],
+      ['MERCHANT', colMerchant, false],
+      ['CATEGORY', colCategory, false],
+      ['AMOUNT', colAmountRight, true],
+      ['RECEIPT', colReceipt, false],
+    ];
+    headers.forEach(([s, x, rightAlign]) =>
+      text(s, rightAlign ? x - font.widthOfTextAtSize(s, 8) : x, y - 14, 8, gray),
+    );
     y -= 39;
+  }
+  // Draws the shared appendix-page heading: receipt label, a hidden deep link
+  // to Folio on the filename, and a "Back to summary" internal link.
+  function appendixHeading(
+    index: number,
+    receiptId: string,
+    label: string,
+    filename: string,
+    suffix: string,
+    isFirstPage: boolean,
+  ) {
+    if (isFirstPage) appendixFirstPageByIndex.set(index, page);
+    text(shorten(`${label}${suffix}`, 360, 11), margin, y, 11);
+    const backLabel = 'Back to summary';
+    const backX = width - margin - font.widthOfTextAtSize(backLabel, 9);
+    text(backLabel, backX, y, 9, green);
+    pendingDestLinks.push({
+      page,
+      rect: [backX - 3, y - 3, backX + font.widthOfTextAtSize(backLabel, 9) + 3, y + 12],
+      target: () => summaryPageByIndex.get(index),
+    });
+    y -= 15;
+    const filenameLabel = shorten(filename, 380, 8);
+    text(filenameLabel, margin, y, 8, gray);
+    uriLink(
+      page,
+      [margin - 2, y - 3, margin + font.widthOfTextAtSize(filenameLabel, 8) + 2, y + 10],
+      receiptReference(receiptId, filename).uri,
+    );
+    y -= 21;
   }
   newPage('EXPENSE CLAIM');
   text(
@@ -140,31 +203,29 @@ export async function generateClaimPdf(
       newPage('EXPENSE CLAIM · CONTINUED');
       tableHead();
     }
-    text(e.occurredAt ?? '—', margin + 8, y, 8);
-    const merchant = wrap(e.merchantName || 'Expense', 230, 9).slice(0, 2);
-    merchant.forEach((s, i) => text(s, margin + 84, y - i * 12, 9));
-    text(e.category, margin + 84, y - merchant.length * 12 - 2, 8, gray);
+    summaryPageByIndex.set(index, page);
+    text(e.occurredAt ?? '—', colDate, y, 8);
+    const merchant = wrap(e.merchantName || 'Expense', colMerchantW, 9).slice(0, 2);
+    merchant.forEach((s, i) => text(s, colMerchant, y - i * 12, 9));
+    text(shorten(e.category, colCategoryW, 8), colCategory, y, 8, gray);
     const amount = formatMoney(e.totalAmountMinor, e.currency ?? snapshot.claim.currency);
-    text(amount, margin + 422 - font.widthOfTextAtSize(amount, 9), y, 9);
+    text(amount, colAmountRight - font.widthOfTextAtSize(amount, 9), y, 9);
     text(
       e.receiptId ? `R${String(index + 1).padStart(3, '0')}` : 'Manual',
-      margin + 438,
+      colReceipt,
       y,
       8,
       e.receiptId ? green : gray,
     );
     if (e.receiptId) {
-      const ref = receiptReference(e.receiptId, e.receiptFilename || 'Receipt');
-      const annotation = doc.context.register(
-        doc.context.obj({
-          Type: 'Annot',
-          Subtype: 'Link',
-          Rect: [margin + 434, y - 4, width - margin, y + 12],
-          Border: [0, 0, 0],
-          A: { Type: 'Action', S: 'URI', URI: PDFString.of(ref.uri) },
-        }),
-      );
-      page.node.addAnnot(annotation);
+      pendingDestLinks.push({
+        page,
+        rect: [colReceipt - 4, y - 4, width - margin, y + 12],
+        target: () =>
+          snapshot.includeReceipts
+            ? appendixFirstPageByIndex.get(index)
+            : registerPageByIndex.get(index),
+      });
     }
     y -= Math.max(42, merchant.length * 12 + 25);
     page.drawLine({
@@ -195,10 +256,19 @@ export async function generateClaimPdf(
     );
     y -= 16;
     if (e.receiptId) {
-      for (const s of wrap(e.receiptFilename || 'Receipt', 500, 8)) {
+      registerPageByIndex.set(index, page);
+      const filename = e.receiptFilename || 'Receipt';
+      const lines = wrap(filename, 500, 8);
+      const top = y;
+      for (const s of lines) {
         text(s, margin + 30, y, 8, gray);
         y -= 12;
       }
+      uriLink(
+        page,
+        [margin + 28, y + 2, margin + 30 + 500, top + 10],
+        receiptReference(e.receiptId, filename).uri,
+      );
       text(`Receipt ID: ${e.receiptId}`, margin + 30, y, 8, gray);
       y -= 13;
     } else {
@@ -218,6 +288,7 @@ export async function generateClaimPdf(
         );
       const bytes = Uint8Array.from(atob(receipt.base64), (c) => c.charCodeAt(0));
       const label = `R${String(index + 1).padStart(3, '0')} · ${e.merchantName || 'Expense'}`;
+      const filename = e.receiptFilename || 'Receipt';
       if (receipt.receipt.mimeType === 'application/pdf') {
         const original = await PDFDocument.load(bytes, { updateMetadata: false });
         if (original.getPageCount() > 30)
@@ -225,8 +296,7 @@ export async function generateClaimPdf(
         // Embed original page content without copying interactive actions or annotations.
         for (let p = 0; p < original.getPageCount(); p++) {
           newPage('RECEIPT APPENDIX');
-          text(shorten(`${label} · page ${p + 1}`, 500, 11), margin, y, 11);
-          y -= 22;
+          appendixHeading(index, e.receiptId, label, filename, ` · page ${p + 1}`, p === 0);
           if (!original.getPage(p).node.Contents()) {
             text('Blank receipt page', margin, y, 9, gray);
             continue;
@@ -246,8 +316,7 @@ export async function generateClaimPdf(
             ? await doc.embedPng(bytes)
             : await doc.embedJpg(bytes);
         newPage('RECEIPT APPENDIX');
-        text(shorten(label, 500, 11), margin, y, 11);
-        y -= 22;
+        appendixHeading(index, e.receiptId, label, filename, '', true);
         const scale = Math.min((width - margin * 2) / image.width, (y - 60) / image.height);
         page.drawImage(image, {
           x: (width - image.width * scale) / 2,
@@ -257,6 +326,10 @@ export async function generateClaimPdf(
         });
       }
     }
+  }
+  for (const { page: source, rect, target } of pendingDestLinks) {
+    const destination = target();
+    if (destination) annotate(source, rect, { Dest: [destination.ref, 'Fit'] });
   }
   doc.getPages().forEach((p, i) => {
     p.drawLine({

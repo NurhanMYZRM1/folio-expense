@@ -1178,6 +1178,34 @@ h1 {
 .result-count {
   margin-left: auto;
 }
+.selection-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 19px;
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--subtle);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.selection-bar > span:first-child {
+  font-weight: 500;
+  color: var(--text);
+}
+.inline-export-note {
+  font-size: 10px;
+  color: var(--muted);
+}
+.checkbox-cell {
+  width: 20px;
+}
+.checkbox-cell input[type='checkbox'] {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
 .pagination {
   display: flex;
   align-items: center;

@@ -83,7 +83,7 @@ export function startJobRunner(callbacks: Callbacks): () => void {
       } else {
         if (!receiptId) throw new Error('The receipt for this job is missing.');
         const receipt = await api.receipt(receiptId);
-        const { receiptPages, thumbnail } = await import('./receiptRendering');
+        const { receiptPages, thumbnail, preprocessCanvas } = await import('./receiptRendering');
         if (job.jobType === 'generate_thumbnail') {
           await api.completeThumbnail(id, token, await thumbnail(receipt));
         } else {
@@ -122,7 +122,7 @@ export function startJobRunner(callbacks: Callbacks): () => void {
               progress(`Local OCR · page ${++page}`);
               let timer: ReturnType<typeof setTimeout> | undefined;
               const result = await Promise.race([
-                ocr.recognize(canvas),
+                ocr.recognize(preprocessCanvas(canvas)),
                 new Promise<never>((_, reject) => {
                   timer = setTimeout(
                     () =>
