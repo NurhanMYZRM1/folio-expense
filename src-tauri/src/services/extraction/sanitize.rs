@@ -61,18 +61,18 @@ pub fn normalize_currency(raw: &str, default_currency: &str) -> Option<String> {
 
 fn month_from_name(s: &str) -> Option<u32> {
     Some(match s.to_uppercase().as_str() {
-        "JAN" => 1,
-        "FEB" => 2,
-        "MAR" | "MAC" => 3,
-        "APR" => 4,
+        "JAN" | "JANUARY" | "JANUARI" => 1,
+        "FEB" | "FEBRUARY" | "FEBRUARI" => 2,
+        "MAR" | "MARCH" | "MAC" => 3,
+        "APR" | "APRIL" => 4,
         "MAY" | "MEI" => 5,
-        "JUN" => 6,
-        "JUL" => 7,
-        "AUG" | "OGOS" => 8,
-        "SEP" | "SEPT" => 9,
-        "OCT" | "OKT" => 10,
-        "NOV" => 11,
-        "DEC" | "DIS" => 12,
+        "JUN" | "JUNE" => 6,
+        "JUL" | "JULY" | "JULAI" => 7,
+        "AUG" | "AUGUST" | "OGOS" => 8,
+        "SEP" | "SEPT" | "SEPTEMBER" => 9,
+        "OCT" | "OCTOBER" | "OKT" | "OKTOBER" => 10,
+        "NOV" | "NOVEMBER" => 11,
+        "DEC" | "DECEMBER" | "DIS" | "DISEMBER" => 12,
         _ => return None,
     })
 }
@@ -147,7 +147,7 @@ fn capture_numeric_dmy(text: &str) -> Option<(u32, u32, i32)> {
 }
 
 fn capture_day_month_year(text: &str) -> Option<(i32, u32, u32)> {
-    let re = Regex::new(r"(?i)\b(\d{1,2})[-\s]([A-Za-z]{3,9})\.?,?[-\s](\d{2,4})\b").ok()?;
+    let re = Regex::new(r"(?i)\b(\d{1,2})[-\s./]([A-Za-z]{3,9})\.?,?[-\s./](\d{2,4})\b").ok()?;
     let caps = re.captures(text)?;
     let day: u32 = caps[1].parse().ok()?;
     let month = month_from_name(&caps[2])?;
@@ -454,6 +454,40 @@ mod tests {
         assert_eq!(
             normalize_date("27 Dis 2025", None, today()),
             Some(("2025-12-27".into(), false))
+        );
+    }
+
+    #[test]
+    fn date_full_month_names_english_and_malay() {
+        assert_eq!(
+            normalize_date("27 September 2026", None, today()),
+            Some(("2026-09-27".into(), false))
+        );
+        assert_eq!(
+            normalize_date("September 27, 2026", None, today()),
+            Some(("2026-09-27".into(), false))
+        );
+        assert_eq!(
+            normalize_date("27 Julai 2026", None, today()),
+            Some(("2026-07-27".into(), false))
+        );
+        // 2025, not 2026, so this stays before the fixed `today()` above
+        // (2026-09-27) rather than tripping the future-date rejection.
+        assert_eq!(
+            normalize_date("27 Disember 2025", None, today()),
+            Some(("2025-12-27".into(), false))
+        );
+        assert_eq!(
+            normalize_date("27 Januari 2026", None, today()),
+            Some(("2026-01-27".into(), false))
+        );
+        assert_eq!(
+            normalize_date("27/Sep/2026", None, today()),
+            Some(("2026-09-27".into(), false))
+        );
+        assert_eq!(
+            normalize_date("27 Mac 2026", None, today()),
+            Some(("2026-03-27".into(), false))
         );
     }
 

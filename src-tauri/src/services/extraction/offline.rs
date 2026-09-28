@@ -96,7 +96,7 @@ fn find_total_line<'a>(lines: &[&'a str]) -> Option<&'a str> {
 
 // Candidate date substrings covering the formats `sanitize::normalize_date`
 // accepts: ISO, numeric D/M/Y (or M/D/Y), `D Month Y` and `Month D, Y`.
-const DATE_CANDIDATE_PATTERN: &str = r"(?i)\b\d{4}[-/.]\d{1,2}[-/.]\d{1,2}\b|\b\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}\b|\b\d{1,2}[-\s][A-Za-z]{3,9}\.?,?[-\s]\d{2,4}\b|\b[A-Za-z]{3,9}\.?\s+\d{1,2},?\s+\d{2,4}\b";
+const DATE_CANDIDATE_PATTERN: &str = r"(?i)\b\d{4}[-/.]\d{1,2}[-/.]\d{1,2}\b|\b\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}\b|\b\d{1,2}[-\s./][A-Za-z]{3,9}\.?,?[-\s./]\d{2,4}\b|\b[A-Za-z]{3,9}\.?\s+\d{1,2},?\s+\d{2,4}\b";
 
 const PHONE_PATTERN: &str = r"(?i)\bTEL\b|\bPHONE\b|\+60|\d{7,}";
 const REG_NUMBER_PATTERN: &str =
@@ -362,5 +362,16 @@ TOTAL $4.50";
         assert_eq!(out.date.as_deref(), Some("2026-09-03"));
         assert_eq!(out.currency.as_deref(), Some("USD"));
         assert_eq!(out.total_amount_minor, Some(450));
+    }
+
+    #[test]
+    fn full_month_name_date_is_recognized() {
+        let text = "\
+GLOBAL MART SDN BHD
+Date: 27 September 2026
+1 x Item RM10.00
+TOTAL RM10.00";
+        let out = run(text, "MYR");
+        assert_eq!(out.date.as_deref(), Some("2026-09-27"));
     }
 }
