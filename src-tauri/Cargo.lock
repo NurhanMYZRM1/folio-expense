@@ -1138,6 +1138,7 @@ dependencies = [
  "ts-rs",
  "uuid",
  "zeroize",
+ "zip",
 ]
 
 [[package]]

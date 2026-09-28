@@ -213,6 +213,27 @@ fn money_number(minor: i64, currency: &str) -> f64 {
         minor as f64 / 10_i64.pow(exponent) as f64
     }
 }
+/// Where and how each tabular export format is stored.
+struct TabularFormat {
+    dir: &'static str,
+    ext: &'static str,
+    audit_action: &'static str,
+    label: &'static str,
+}
+impl TabularFormat {
+    const CSV: Self = Self {
+        dir: "exports/csv",
+        ext: "csv",
+        audit_action: "csv.exported",
+        label: "CSV",
+    };
+    const XLSX: Self = Self {
+        dir: "exports/xlsx",
+        ext: "xlsx",
+        audit_action: "xlsx.exported",
+        label: "Excel file",
+    };
+}
 impl AppService {
     /// Personal name and optional organization from Settings, stamped on every
     /// exported row so a spreadsheet stands on its own for personal or
@@ -335,10 +356,44 @@ impl AppService {
         file_name: String,
         audit_entity: Option<&str>,
     ) -> Result<CsvExport> {
-        let bytes = render(rows);
+        self.write_tabular_export(
+            &TabularFormat::CSV,
+            render(rows),
+            rows.len(),
+            file_name,
+            audit_entity,
+        )
+    }
+    fn write_xlsx_export(
+        &self,
+        rows: &[CsvRow],
+        file_name: String,
+        audit_entity: Option<&str>,
+    ) -> Result<CsvExport> {
+        self.write_tabular_export(
+            &TabularFormat::XLSX,
+            render_xlsx(rows)?,
+            rows.len(),
+            file_name,
+            audit_entity,
+        )
+    }
+    /// Stores an export inside Folio's data directory (atomic temp + rename),
+    /// records an audit entry, then copies it to the user's export directory
+    /// with ` (n)` collision naming. Shared by CSV and Excel so their
+    /// storage, audit and copy behaviour cannot drift apart.
+    fn write_tabular_export(
+        &self,
+        format: &TabularFormat,
+        bytes: Vec<u8>,
+        row_count: usize,
+        file_name: String,
+        audit_entity: Option<&str>,
+    ) -> Result<CsvExport> {
         let export_id = id();
-        let relative = format!("exports/csv/{export_id}.csv");
-        let path = self.paths.resolve(&relative)?;
+        let path = self
+            .paths
+            .resolve(&format!("{}/{export_id}.{}", format.dir, format.ext))?;
         let temp = self.paths.resolve(&format!("cache/{export_id}.part"))?;
         {
             let mut f = fs::File::create(&temp)?;
@@ -353,9 +408,9 @@ impl AppService {
         let tx = db.transaction()?;
         repository::audit(
             &tx,
-            "csv.exported",
+            format.audit_action,
             audit_entity.unwrap_or(&export_id),
-            serde_json::json!({"exportId":export_id,"fileName":file_name,"rows":rows.len()}),
+            serde_json::json!({"exportId":export_id,"fileName":file_name,"rows":row_count}),
         )?;
         tx.commit()?;
         drop(db);
@@ -389,7 +444,14 @@ impl AppService {
             match written {
                 Some(name) => exported_file_name = name,
                 None => {
-                    return Err(AppError::new("ExportCopyError",format!("The CSV is saved in Folio, but could not be copied to the export directory. Local copy: {}",path.display())));
+                    return Err(AppError::new(
+                        "ExportCopyError",
+                        format!(
+                            "The {} is saved in Folio, but could not be copied to the export directory. Local copy: {}",
+                            format.label,
+                            path.display()
+                        ),
+                    ));
                 }
             }
         }
@@ -397,93 +459,24 @@ impl AppService {
             id: export_id,
             file_name: exported_file_name,
             path: path.to_string_lossy().to_string(),
-            rows: rows.len() as u32,
+            rows: row_count as u32,
         })
     }
-    fn write_xlsx_export(
-        &self,
-        rows: &[CsvRow],
-        file_name: String,
-        audit_entity: Option<&str>,
-    ) -> Result<CsvExport> {
-        let bytes = render_xlsx(rows)?;
-        let export_id = id();
-        let relative = format!("exports/xlsx/{export_id}.xlsx");
-        let path = self.paths.resolve(&relative)?;
-        let temp = self.paths.resolve(&format!("cache/{export_id}.part"))?;
-        {
-            let mut f = fs::File::create(&temp)?;
-            f.write_all(&bytes)?;
-            f.sync_all()?;
+    fn tabular_export_path(&self, format: &TabularFormat, id: &str) -> Result<String> {
+        uuid::Uuid::parse_str(id).map_err(|_| AppError::invalid("Invalid export ID."))?;
+        let path = self
+            .paths
+            .resolve(&format!("{}/{id}.{}", format.dir, format.ext))?;
+        if !path.exists() {
+            return Err(AppError::not_found());
         }
-        if path.exists() {
-            fs::remove_file(&path)?;
-        }
-        fs::rename(&temp, &path)?;
-        let mut db = self.conn()?;
-        let tx = db.transaction()?;
-        repository::audit(
-            &tx,
-            "xlsx.exported",
-            audit_entity.unwrap_or(&export_id),
-            serde_json::json!({"exportId":export_id,"fileName":file_name,"rows":rows.len()}),
-        )?;
-        tx.commit()?;
-        drop(db);
-        let settings = self.settings()?;
-        let mut exported_file_name = file_name;
-        if let Some(folder) = settings.export_directory {
-            let dir = std::path::Path::new(&folder);
-            let mut written = None;
-            for attempt in 1..=MAX_EXPORT_COLLISION_ATTEMPTS {
-                let candidate = export_candidate_name(&exported_file_name, attempt);
-                let destination = dir.join(&candidate);
-                let outcome = (|| -> std::io::Result<()> {
-                    let mut file = fs::OpenOptions::new()
-                        .write(true)
-                        .create_new(true)
-                        .open(&destination)?;
-                    file.write_all(&bytes)?;
-                    file.sync_all()
-                })();
-                match outcome {
-                    Ok(()) => {
-                        written = Some(candidate);
-                        break;
-                    }
-                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
-                    Err(_) => break,
-                }
-            }
-            match written {
-                Some(name) => exported_file_name = name,
-                None => {
-                    return Err(AppError::new("ExportCopyError",format!("The Excel file is saved in Folio, but could not be copied to the export directory. Local copy: {}",path.display())));
-                }
-            }
-        }
-        Ok(CsvExport {
-            id: export_id,
-            file_name: exported_file_name,
-            path: path.to_string_lossy().to_string(),
-            rows: rows.len() as u32,
-        })
+        Ok(path.to_string_lossy().to_string())
     }
     pub fn csv_export_path(&self, id: &str) -> Result<String> {
-        uuid::Uuid::parse_str(id).map_err(|_| AppError::invalid("Invalid export ID."))?;
-        let path = self.paths.resolve(&format!("exports/csv/{id}.csv"))?;
-        if !path.exists() {
-            return Err(AppError::not_found());
-        }
-        Ok(path.to_string_lossy().to_string())
+        self.tabular_export_path(&TabularFormat::CSV, id)
     }
     pub fn xlsx_export_path(&self, id: &str) -> Result<String> {
-        uuid::Uuid::parse_str(id).map_err(|_| AppError::invalid("Invalid export ID."))?;
-        let path = self.paths.resolve(&format!("exports/xlsx/{id}.xlsx"))?;
-        if !path.exists() {
-            return Err(AppError::not_found());
-        }
-        Ok(path.to_string_lossy().to_string())
+        self.tabular_export_path(&TabularFormat::XLSX, id)
     }
 }
 #[cfg(test)]
@@ -580,6 +573,58 @@ mod tests {
         let out = render_xlsx(&[row("Cafe", "MYR", Some(8450), Some(478), "R001")]).unwrap();
         assert!(out.starts_with(b"PK"));
         assert!(out.len() > 1000);
+    }
+    fn xlsx_part(bytes: &[u8], name: &str) -> String {
+        use std::io::Read;
+        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+        let mut part = archive.by_name(name).unwrap();
+        let mut xml = String::new();
+        part.read_to_string(&mut xml).unwrap();
+        xml
+    }
+    #[test]
+    fn xlsx_stores_formula_like_text_as_strings_not_formulas() {
+        let hostile = [
+            "=SUM(A1:A9)",
+            "+cmd|' /C calc'!A0",
+            "-2+3",
+            "@HYPERLINK(\"x\")",
+        ];
+        let rows: Vec<CsvRow> = hostile
+            .iter()
+            .map(|m| {
+                let mut r = row(m, "MYR", Some(100), None, "R001");
+                r.description = (*m).to_string();
+                r
+            })
+            .collect();
+        let out = render_xlsx(&rows).unwrap();
+        let sheet = xlsx_part(&out, "xl/worksheets/sheet1.xml");
+        assert!(
+            !sheet.contains("<f>"),
+            "worksheet must contain no formula cells"
+        );
+        assert!(
+            !sheet.contains("<f "),
+            "worksheet must contain no formula cells"
+        );
+        let strings = xlsx_part(&out, "xl/sharedStrings.xml");
+        for h in ["=SUM(A1:A9)", "-2+3"] {
+            assert!(strings.contains(h), "{h} should be stored verbatim as text");
+        }
+    }
+    #[test]
+    fn xlsx_amounts_are_numeric_cells_scaled_by_currency_exponent() {
+        let out = render_xlsx(&[
+            row("Cafe", "MYR", Some(8450), None, "R001"),
+            row("Shop", "JPY", Some(1500), None, "R002"),
+            row("Souq", "BHD", Some(12345), None, "R003"),
+        ])
+        .unwrap();
+        let sheet = xlsx_part(&out, "xl/worksheets/sheet1.xml");
+        assert!(sheet.contains("<c r=\"I2\"><v>84.5</v></c>"), "{sheet}");
+        assert!(sheet.contains("<c r=\"I3\"><v>1500</v></c>"));
+        assert!(sheet.contains("<c r=\"I4\"><v>12.345</v></c>"));
     }
     #[test]
     fn missing_amount_renders_blank_cell() {
