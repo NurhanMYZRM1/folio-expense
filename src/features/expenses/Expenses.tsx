@@ -29,7 +29,9 @@ export function Expenses() {
     [page, setPage] = useState(1);
   const [selected, setSelected] = useState<Set<string>>(new Set()),
     [csvBusy, setCsvBusy] = useState(false),
-    [lastCsv, setLastCsv] = useState<CsvExport | null>(null);
+    [xlsxBusy, setXlsxBusy] = useState(false),
+    [lastCsv, setLastCsv] = useState<CsvExport | null>(null),
+    [lastXlsx, setLastXlsx] = useState<CsvExport | null>(null);
   const filtered = expenses
     .filter(
       (e) =>
@@ -60,6 +62,7 @@ export function Expenses() {
     setPage(1);
     setSelected(new Set());
     setLastCsv(null);
+    setLastXlsx(null);
   }
   async function create() {
     try {
@@ -91,8 +94,9 @@ export function Expenses() {
   function clearSelection() {
     setSelected(new Set());
     setLastCsv(null);
+    setLastXlsx(null);
   }
-  async function exportSelected() {
+  async function exportSelectedCsv() {
     setCsvBusy(true);
     try {
       const csv = await api.exportExpensesCsv([...selected]);
@@ -102,6 +106,18 @@ export function Expenses() {
       notify(errorMessage(e), true);
     } finally {
       setCsvBusy(false);
+    }
+  }
+  async function exportSelectedXlsx() {
+    setXlsxBusy(true);
+    try {
+      const workbook = await api.exportExpensesXlsx([...selected]);
+      setLastXlsx(workbook);
+      notify(`Saved ${workbook.fileName} · ${workbook.rows} expenses.`);
+    } catch (e) {
+      notify(errorMessage(e), true);
+    } finally {
+      setXlsxBusy(false);
     }
   }
   return (
@@ -205,6 +221,7 @@ export function Expenses() {
                 setPage(1);
                 setSelected(new Set());
                 setLastCsv(null);
+                setLastXlsx(null);
               }}
             >
               Clear filters
@@ -218,10 +235,18 @@ export function Expenses() {
             <button
               className="button primary small"
               disabled={csvBusy}
-              onClick={() => void exportSelected()}
+              onClick={() => void exportSelectedCsv()}
             >
               <FileSpreadsheet size={14} />
-              {csvBusy ? 'Exporting…' : 'Export CSV'}
+              {csvBusy ? 'Exporting CSV…' : 'Export CSV'}
+            </button>
+            <button
+              className="button secondary small"
+              disabled={xlsxBusy}
+              onClick={() => void exportSelectedXlsx()}
+            >
+              <FileSpreadsheet size={14} />
+              {xlsxBusy ? 'Exporting Excel…' : 'Export Excel'}
             </button>
             {lastCsv && (
               <span className="inline-export-note">
@@ -233,6 +258,19 @@ export function Expenses() {
                   }
                 >
                   Open CSV
+                </button>
+              </span>
+            )}
+            {lastXlsx && (
+              <span className="inline-export-note">
+                Saved {lastXlsx.fileName} ·{' '}
+                <button
+                  className="text-button"
+                  onClick={() =>
+                    void api.openXlsxExport(lastXlsx.id).catch((e) => notify(errorMessage(e), true))
+                  }
+                >
+                  Open Excel
                 </button>
               </span>
             )}

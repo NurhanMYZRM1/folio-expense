@@ -44,6 +44,7 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png",
 regex = "1"
 zeroize = "1"
 open = "5"
+rust_xlsxwriter = "0.90.0"
 [dev-dependencies]
 tempfile = "3"
 

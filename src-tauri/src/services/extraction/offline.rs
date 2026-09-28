@@ -193,6 +193,9 @@ impl LocalOcrExtractor {
         let address_re = re(ADDRESS_PATTERN)?;
         let boilerplate_re = re(BOILERPLATE_PATTERN)?;
         let suffix_re = re(SUFFIX_PATTERN)?;
+        let currency_amount_re = re(
+            r"(?i)(?:RM|MYR|USD|SGD|EUR|GBP|AUD|CAD|CHF|CNY|HKD|INR|THB|IDR|JPY|KRW|KWD|OMR|US\$|S\$|Rp|[€£₹฿₩¥$])\s*\d",
+        )?;
         let candidates: Vec<&str> = lines
             .iter()
             .take(8)
@@ -206,13 +209,15 @@ impl LocalOcrExtractor {
                     && !reg_re.is_match(line)
                     && !address_re.is_match(line)
                     && !boilerplate_re.is_match(line)
+                    && !currency_amount_re.is_match(line)
             })
             .collect();
-        let suffix_line = candidates.iter().find(|line| suffix_re.is_match(line));
-        let (merchant, merchant_has_suffix) = match suffix_line.or_else(|| candidates.first()) {
+        let brand_line = candidates.iter().find(|line| !suffix_re.is_match(line));
+        let chosen_line = brand_line.or_else(|| candidates.first());
+        let (merchant, merchant_has_suffix) = match chosen_line {
             Some(line) => (
                 Some(line.chars().take(300).collect::<String>()),
-                suffix_line.is_some(),
+                suffix_re.is_match(line),
             ),
             None => (None, false),
         };
@@ -312,6 +317,36 @@ THANK YOU";
         assert_eq!(out.currency.as_deref(), Some("MYR"));
         assert_eq!(out.total_amount_minor, Some(1325));
         assert_eq!(out.confidence.get("merchantName"), Some(&0.7));
+    }
+
+    #[test]
+    fn brand_line_beats_registered_company_suffix_when_both_are_printed() {
+        let text = "\
+KOPI KENANGAN
+ABC FOOD SDN BHD
+TAX INVOICE
+27/09/2026 08:15
+TOTAL RM13.25";
+        let out = run(text, "MYR");
+        assert_eq!(out.merchant_name.as_deref(), Some("KOPI KENANGAN"));
+        assert_eq!(out.date.as_deref(), Some("2026-09-27"));
+        assert_eq!(out.currency.as_deref(), Some("MYR"));
+        assert_eq!(out.total_amount_minor, Some(1325));
+    }
+
+    #[test]
+    fn registered_company_line_is_used_when_no_separate_brand_line_exists() {
+        let text = "\
+ABC TRADING SDN BHD
+RECEIPT
+27 Sep 2026
+Item RM10.00
+TOTAL RM10.00";
+        let out = run(text, "MYR");
+        assert_eq!(out.merchant_name.as_deref(), Some("ABC TRADING SDN BHD"));
+        assert_eq!(out.date.as_deref(), Some("2026-09-27"));
+        assert_eq!(out.currency.as_deref(), Some("MYR"));
+        assert_eq!(out.total_amount_minor, Some(1000));
     }
 
     #[test]

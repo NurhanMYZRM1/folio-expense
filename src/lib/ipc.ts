@@ -68,4 +68,7 @@ export const api = {
   exportClaimCsv: (id: string) => call<CsvExport>('export_claim_csv', { id }),
   exportExpensesCsv: (ids: string[]) => call<CsvExport>('export_expenses_csv', { ids }),
   openCsvExport: (id: string) => call<void>('open_csv_export', { id }),
+  exportClaimXlsx: (id: string) => call<CsvExport>('export_claim_xlsx', { id }),
+  exportExpensesXlsx: (ids: string[]) => call<CsvExport>('export_expenses_xlsx', { ids }),
+  openXlsxExport: (id: string) => call<void>('open_xlsx_export', { id }),
 };

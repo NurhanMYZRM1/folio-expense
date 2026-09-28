@@ -22,11 +22,27 @@ pub fn normalize_currency(raw: &str, default_currency: &str) -> Option<String> {
         return None;
     }
     let upper = trimmed.to_uppercase();
-    let code = if upper == "RM" {
+    let contains_token = |token: &str| {
+        upper.match_indices(token).any(|(idx, _)| {
+            let before_ok = idx == 0
+                || upper[..idx]
+                    .chars()
+                    .next_back()
+                    .is_none_or(|c| !c.is_ascii_alphanumeric());
+            let after_idx = idx + token.len();
+            let after_ok = after_idx >= upper.len()
+                || upper[after_idx..]
+                    .chars()
+                    .next()
+                    .is_none_or(|c| !c.is_ascii_alphabetic());
+            before_ok && after_ok
+        })
+    };
+    let code = if contains_token("MYR") || contains_token("RM") {
         "MYR".to_string()
-    } else if upper == "US$" {
+    } else if upper == "US$" || upper.contains("US$") {
         "USD".to_string()
-    } else if upper == "S$" {
+    } else if upper == "S$" || upper.contains("S$") {
         "SGD".to_string()
     } else if upper.contains('¥') {
         if upper.contains("CN") || upper.contains("RMB") || upper.contains("CNY") {
@@ -44,8 +60,40 @@ pub fn normalize_currency(raw: &str, default_currency: &str) -> Option<String> {
         "THB".to_string()
     } else if upper.contains('₩') {
         "KRW".to_string()
-    } else if upper == "RP" {
+    } else if contains_token("RP") || contains_token("IDR") {
         "IDR".to_string()
+    } else if contains_token("USD") {
+        "USD".to_string()
+    } else if contains_token("SGD") {
+        "SGD".to_string()
+    } else if contains_token("EUR") {
+        "EUR".to_string()
+    } else if contains_token("GBP") {
+        "GBP".to_string()
+    } else if contains_token("AUD") {
+        "AUD".to_string()
+    } else if contains_token("CAD") {
+        "CAD".to_string()
+    } else if contains_token("CHF") {
+        "CHF".to_string()
+    } else if contains_token("CNY") {
+        "CNY".to_string()
+    } else if contains_token("HKD") {
+        "HKD".to_string()
+    } else if contains_token("INR") {
+        "INR".to_string()
+    } else if contains_token("THB") {
+        "THB".to_string()
+    } else if contains_token("JPY") {
+        "JPY".to_string()
+    } else if contains_token("KRW") {
+        "KRW".to_string()
+    } else if contains_token("BHD") {
+        "BHD".to_string()
+    } else if contains_token("KWD") {
+        "KWD".to_string()
+    } else if contains_token("OMR") {
+        "OMR".to_string()
     } else if upper == "$" {
         let default_upper = default_currency.trim().to_uppercase();
         if DOLLAR_CURRENCIES.contains(&default_upper.as_str()) {
@@ -334,6 +382,9 @@ mod tests {
         assert_eq!(normalize_currency("RM", "MYR"), Some("MYR".into()));
         assert_eq!(normalize_currency("rm", "MYR"), Some("MYR".into()));
         assert_eq!(normalize_currency("Rm", "MYR"), Some("MYR".into()));
+        assert_eq!(normalize_currency("RM13.25", "MYR"), Some("MYR".into()));
+        assert_eq!(normalize_currency("RM 13.25", "MYR"), Some("MYR".into()));
+        assert_eq!(normalize_currency("MYR 13.25", "MYR"), Some("MYR".into()));
     }
 
     #[test]

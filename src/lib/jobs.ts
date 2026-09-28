@@ -93,7 +93,7 @@ export function startJobRunner(callbacks: Callbacks): () => void {
             progress('Trying online AI extraction');
             const images: string[] = [];
             for await (const canvas of receiptPages(receipt)) {
-              images.push(canvas.toDataURL('image/jpeg', 0.85));
+              images.push(preprocessCanvas(canvas).toDataURL('image/jpeg', 0.85));
               canvas.width = canvas.height = 0;
             }
             completed = await api.tryOnline(id, token, images);

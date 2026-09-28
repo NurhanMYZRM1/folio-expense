@@ -251,6 +251,16 @@ describe('claim PDF', () => {
     for (const header of ['DATE', 'MERCHANT', 'CATEGORY', 'AMOUNT', 'RECEIPT'])
       expect(heading).toContain(header);
   });
+  it('uses personal-friendly labels in the claim header', async () => {
+    const s = fixture();
+    s.company = '';
+    s.employee = 'Nurhan';
+    const data = await generateClaimPdf(s, [], await loadFont());
+    const pdf = await PDFDocument.load(data);
+    const firstPage = pageText(pdf, 0);
+    expect(firstPage).toContain('Organization / personal context');
+    expect(firstPage).toContain('Name: Nurhan');
+  });
   it('links the summary RECEIPT cell to the register page when receipts are not included', async () => {
     const s = fixture();
     s.includeReceipts = false;
