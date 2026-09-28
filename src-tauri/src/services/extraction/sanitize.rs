@@ -8,6 +8,14 @@ use std::collections::BTreeMap;
 
 const DOLLAR_CURRENCIES: [&str; 5] = ["USD", "SGD", "AUD", "CAD", "HKD"];
 
+/// Whether `code` (an ISO currency code) is one of the currencies a bare `$`
+/// can resolve to. Exposed so other extraction modules (e.g. the online
+/// provider's printed-currency override) can reuse this list instead of
+/// duplicating it.
+pub(crate) fn is_dollar_currency(code: &str) -> bool {
+    DOLLAR_CURRENCIES.contains(&code.trim().to_uppercase().as_str())
+}
+
 pub fn normalize_currency(raw: &str, default_currency: &str) -> Option<String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
@@ -266,13 +274,11 @@ pub fn sanitize(result: Extraction, default_currency: &str, today: NaiveDate) ->
         zero(&mut r.confidence, "category");
     }
 
-    for v in r.confidence.values_mut() {
-        *v = if v.is_finite() {
-            v.clamp(0.0, 1.0)
-        } else {
-            0.0
-        };
-    }
+    // Rebuild the confidence map with exactly the six known keys: this both
+    // fills in any that are missing and drops any extras (e.g. from a
+    // non-strict provider), which `normalizer::validate` requires to be
+    // exactly six. Values are clamped into 0..=1, with non-finite treated as 0.
+    let mut confidence = BTreeMap::new();
     for key in [
         "merchantName",
         "date",
@@ -281,8 +287,15 @@ pub fn sanitize(result: Extraction, default_currency: &str, today: NaiveDate) ->
         "currency",
         "category",
     ] {
-        r.confidence.entry(key.into()).or_insert(0.0);
+        let value = r.confidence.get(key).copied().unwrap_or(0.0);
+        let value = if value.is_finite() {
+            value.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        confidence.insert(key.to_string(), value);
     }
+    r.confidence = confidence;
 
     r
 }
@@ -589,5 +602,49 @@ mod tests {
         assert_eq!(out.confidence.get("merchantName"), Some(&0.0));
         assert_eq!(out.suggested_category, None);
         assert_eq!(out.confidence.get("category"), Some(&0.0));
+    }
+
+    #[test]
+    fn sanitize_output_always_satisfies_normalizer_validate_even_when_hostile() {
+        use crate::services::extraction::normalizer;
+        let hostile = Extraction {
+            merchant_name: Some("Z".repeat(400)),
+            date: Some("not a real date".into()),
+            total_amount_minor: Some(-500),
+            tax_amount_minor: Some(100),
+            currency: Some("ZZZ".into()),
+            suggested_category: Some("NotACategory".into()),
+            confidence: BTreeMap::from([
+                ("merchantName".to_string(), 0.9),
+                ("date".to_string(), f64::NAN),
+                ("total".to_string(), -3.0),
+                ("tax".to_string(), 7.0),
+                ("currency".to_string(), 0.9),
+                ("category".to_string(), 0.9),
+                // Extra keys a non-strict provider might add: must be dropped
+                // or `normalizer::validate`'s `len() != 6` check will fail.
+                ("bogusExtraKey".to_string(), 0.42),
+                ("anotherBogusKey".to_string(), 999.0),
+            ]),
+        };
+        let out = sanitize(hostile, "MYR", today());
+        normalizer::validate(&out)
+            .expect("sanitize output must always satisfy normalizer::validate");
+
+        // Fields with no salvageable reading are nulled...
+        assert_eq!(out.date, None);
+        assert_eq!(out.total_amount_minor, None);
+        assert_eq!(out.currency, None);
+        assert_eq!(out.suggested_category, None);
+        // ...but a field that can be salvaged (an overlong merchant name) is
+        // preserved (truncated) rather than discarded, and a legitimately
+        // in-range value (tax, once compared against a *dropped* total) is
+        // kept rather than nulled by the confidence clean-up.
+        assert_eq!(out.merchant_name.as_deref(), Some("Z".repeat(200).as_str()));
+        assert_eq!(out.tax_amount_minor, Some(100));
+        // Exactly the six known keys survive, extras are gone.
+        assert_eq!(out.confidence.len(), 6);
+        assert!(!out.confidence.contains_key("bogusExtraKey"));
+        assert!(!out.confidence.contains_key("anotherBogusKey"));
     }
 }

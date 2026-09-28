@@ -223,6 +223,27 @@ fn manual_edits_and_clears_survive_later_extraction() {
     assert_eq!(e.tax_amount_minor, None);
 }
 #[test]
+fn online_extraction_with_tax_over_total_completes_instead_of_failing_the_job() {
+    // Regression for I-2: an online-shaped extraction with one bad field
+    // (tax > total) must still sanitize into a valid result and complete the
+    // job, rather than surfacing an InvalidExtraction error that would make
+    // `try_online` fall back to OCR and discard a correct AI extraction.
+    let (t, s) = workspace();
+    let id = import(&t, &s);
+    let j = extraction_job(&s);
+    let mut hostile = result();
+    hostile.tax_amount_minor = Some(9_999_999);
+    assert!(hostile.total_amount_minor.unwrap() < hostile.tax_amount_minor.unwrap());
+    s.complete_extraction(&j.job.id, &j.token, hostile, FieldSource::OnlineAi, None)
+        .unwrap();
+    let e = s.expense(&id).unwrap();
+    assert_eq!(e.merchant_name.as_deref(), Some("OCR merchant"));
+    assert_eq!(e.occurred_at.as_deref(), Some("2026-09-27"));
+    assert_eq!(e.total_amount_minor, Some(5000));
+    assert_eq!(e.currency.as_deref(), Some("MYR"));
+    assert_eq!(e.tax_amount_minor, None);
+}
+#[test]
 fn stale_edits_fail_without_losing_updates() {
     let (t, s) = workspace();
     let id = import(&t, &s);

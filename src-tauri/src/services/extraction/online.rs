@@ -1,4 +1,4 @@
-use super::{normalizer, sanitize, ExtractionInput, ReceiptExtractor};
+use super::{sanitize, ExtractionInput, ReceiptExtractor};
 use crate::{
     domain::extraction::Extraction,
     error::{AppError, Result},
@@ -30,10 +30,39 @@ struct WireExtraction {
     confidence: BTreeMap<String, f64>,
 }
 
+/// Resolves the currency to use given the model's own `currency` guess and the
+/// `currencyAsPrinted` token, when the model reported one.
+///
+/// The printed token overrides the model's currency whenever it is
+/// unambiguous (`RM`, `S$`, `US$`, `€`, `£`, `₹`, `฿`, `₩`, `Rp`, a `¥` token
+/// that itself carries a China cue such as `CN¥`/`RMB¥`, or an ISO code) —
+/// i.e. whenever `sanitize::normalize_currency` resolves it on its own merits.
+/// A bare `¥` or bare `$` is ambiguous on its own, so for those two tokens the
+/// model's currency wins when it is already consistent with the symbol
+/// (CNY/JPY for `¥`; any dollar currency for `$`); otherwise the token falls
+/// back to `normalize_currency`'s default-currency resolution.
+fn resolve_printed_currency(
+    printed: &str,
+    model_currency: Option<&str>,
+    default_currency: &str,
+) -> Option<String> {
+    let trimmed = printed.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    match trimmed.to_uppercase().as_str() {
+        "¥" if matches!(model_currency, Some("CNY") | Some("JPY")) => None,
+        "$" if model_currency.is_some_and(sanitize::is_dollar_currency) => None,
+        _ => sanitize::normalize_currency(trimmed, default_currency),
+    }
+}
+
 fn to_extraction(wire: WireExtraction, default_currency: &str, today: NaiveDate) -> Extraction {
     let mut currency = wire.currency;
     if let Some(printed) = wire.currency_as_printed.as_deref() {
-        if let Some(normalized) = sanitize::normalize_currency(printed, default_currency) {
+        if let Some(normalized) =
+            resolve_printed_currency(printed, currency.as_deref(), default_currency)
+        {
             currency = Some(normalized);
         }
     }
@@ -163,9 +192,14 @@ impl ReceiptExtractor for OnlineVisionExtractor<'_> {
             ));
         }
         let today = chrono::Local::now().date_naive();
-        let result = parse_response(&body, input.default_currency, today)?;
-        normalizer::validate(&result)?;
-        Ok(result)
+        // Validation happens later in the pipeline: the worker's
+        // `complete_extraction` runs `sanitize::sanitize` (which now
+        // guarantees its output satisfies `normalizer::validate`) before
+        // validating, for both online and offline sources. Validating here
+        // too would reject a result over a single bad field before sanitize
+        // gets a chance to clean it up, causing `try_online` to fall back to
+        // OCR and discard an otherwise-good AI extraction.
+        parse_response(&body, input.default_currency, today)
     }
 }
 
@@ -270,6 +304,48 @@ mod tests {
         let body = wrap_content(&content);
         let result = parse_response(&body, "MYR", today()).unwrap();
         assert_eq!(result.currency.as_deref(), Some("USD"));
+    }
+
+    #[test]
+    fn parse_response_bare_yen_keeps_model_cny() {
+        // A Chinese receipt printed a bare "¥": the model's own CNY must win
+        // rather than being clobbered by normalize_currency("¥") == JPY.
+        let content = wire_json("2026-04-03", Value::Null, "CNY", json!("¥"));
+        let body = wrap_content(&content);
+        let result = parse_response(&body, "MYR", today()).unwrap();
+        assert_eq!(result.currency.as_deref(), Some("CNY"));
+    }
+
+    #[test]
+    fn parse_response_bare_yen_keeps_model_jpy() {
+        let content = wire_json("2026-04-03", Value::Null, "JPY", json!("¥"));
+        let body = wrap_content(&content);
+        let result = parse_response(&body, "MYR", today()).unwrap();
+        assert_eq!(result.currency.as_deref(), Some("JPY"));
+    }
+
+    #[test]
+    fn parse_response_bare_dollar_keeps_model_usd_with_sgd_default() {
+        // A US receipt printed a bare "$" for a user whose default currency
+        // is SGD: the model's own USD must win rather than being overridden
+        // to the default currency.
+        let content = wire_json("2026-04-03", Value::Null, "USD", json!("$"));
+        let body = wrap_content(&content);
+        let result = parse_response(&body, "SGD", today()).unwrap();
+        assert_eq!(result.currency.as_deref(), Some("USD"));
+    }
+
+    #[test]
+    fn parse_response_bare_dollar_kept_currency_drives_month_first_date_hint() {
+        // "$" alone is ambiguous, but the model's own USD is consistent with
+        // it, so USD is kept as the resolved currency -- which must then be
+        // used as the date hint, reading the ambiguous printed date
+        // month-first (US convention) rather than day-first.
+        let content = wire_json("2026-04-03", json!("03/04/2026"), "USD", json!("$"));
+        let body = wrap_content(&content);
+        let result = parse_response(&body, "SGD", today()).unwrap();
+        assert_eq!(result.currency.as_deref(), Some("USD"));
+        assert_eq!(result.date.as_deref(), Some("2026-03-04"));
     }
 
     #[test]
