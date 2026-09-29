@@ -37,6 +37,9 @@ jobs:
       - name: Verify generated bindings are committed
         run: git diff --exit-code -- src/bindings/generated
       - run: npm run format:check
+      - run: npm run lint
+      # Fails on a known high or critical vulnerability in the npm dependencies.
+      - run: npm audit --audit-level=high
       - run: npm run build
       - run: npm test
       - run: npm run test:rust
