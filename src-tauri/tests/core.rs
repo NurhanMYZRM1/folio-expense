@@ -104,10 +104,69 @@ fn migrations_are_idempotent_and_constraints_work() {
     let version: i32 = db
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 1);
+    // The migrations must stamp exactly the version this build says it supports.
+    assert_eq!(version, folio::db::SCHEMA_VERSION);
     assert!(db.execute("INSERT INTO expenses(id,status,created_at,updated_at) VALUES('x','nonsense','now','now')",[]).is_err());
     db.execute_batch("PRAGMA user_version=999").unwrap();
     assert!(folio::db::migrate(&mut db).is_err());
+}
+/// Writes a database stamped with a schema version this build doesn't know,
+/// holding one row that must survive untouched.
+fn future_database(root: &std::path::Path) -> std::path::PathBuf {
+    let dir = root.join("database");
+    fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("expenses.sqlite");
+    let db = rusqlite::Connection::open(&path).unwrap();
+    db.execute_batch(
+        "CREATE TABLE future(x TEXT); INSERT INTO future VALUES('keep me'); PRAGMA user_version=3;",
+    )
+    .unwrap();
+    path
+}
+#[test]
+fn startup_refuses_newer_database_without_modifying_it() {
+    let t = tempfile::tempdir().unwrap();
+    let root = t.path().join("app");
+    let path = future_database(&root);
+    let before = fs::read(&path).unwrap();
+
+    let error = AppService::open(root.clone(), Arc::new(MemorySecrets::default()))
+        .err()
+        .expect("a newer database must be refused");
+    assert_eq!(error.code, "DatabaseVersion");
+    assert!(error.message.contains("version 3"), "{}", error.message);
+
+    // Refusing must not write anything: same bytes, no journal files.
+    assert_eq!(fs::read(&path).unwrap(), before);
+    assert!(!root.join("database/expenses.sqlite-wal").exists());
+    assert!(!root.join("database/expenses.sqlite-shm").exists());
+
+    // Opening it again gives the same answer, not a different failure.
+    let again = AppService::open(root, Arc::new(MemorySecrets::default()))
+        .err()
+        .expect("still refused");
+    assert_eq!(again.code, "DatabaseVersion");
+}
+#[test]
+fn startup_after_moving_newer_database_aside_creates_a_fresh_one() {
+    // The recovery the user performed: rename the data folder, start again.
+    let t = tempfile::tempdir().unwrap();
+    let root = t.path().join("app");
+    future_database(&root);
+    fs::rename(&root, t.path().join("app-backup")).unwrap();
+
+    AppService::open(root.clone(), Arc::new(MemorySecrets::default())).unwrap();
+    let db = rusqlite::Connection::open(root.join("database/expenses.sqlite")).unwrap();
+    let version: i32 = db
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(version, folio::db::SCHEMA_VERSION);
+    let kept: String =
+        rusqlite::Connection::open(t.path().join("app-backup/database/expenses.sqlite"))
+            .unwrap()
+            .query_row("SELECT x FROM future", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(kept, "keep me");
 }
 #[test]
 fn exact_duplicate_does_not_create_expense_or_change_original() {
