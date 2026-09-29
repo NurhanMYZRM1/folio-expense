@@ -68,6 +68,7 @@ npm run test:rust                # real SQLite/service integration tests
 npm run test:driver              # test-only stdio adapter; no network server
 npm run test:e2e                 # React + Rust + SQLite + bundled OCR + real PDF
 npm run format:check
+npm run lint                     # ESLint for the TypeScript/React code
 npm run lint:rust
 npm run package                 # native installer on the current platform
 ```
