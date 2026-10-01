@@ -178,7 +178,21 @@ pub fn normalize_date(
     }
     if let Some((p1, p2, y)) = capture_numeric_dmy(trimmed) {
         let (y, m, d, ambiguous) = resolve_numeric(p1, p2, y, currency)?;
-        return finalize(y, m, d, ambiguous, today);
+        if !ambiguous || m == d {
+            // `05/05/2026` reads the same either way, so it is not ambiguous.
+            return finalize(y, m, d, false, today);
+        }
+        // Both parts could be the month. When only one reading is a real,
+        // non-future date (e.g. `10/11/2026` read day-first would be in the
+        // future), that reading is the answer and nothing is left to verify.
+        return match (
+            finalize(y, m, d, true, today),
+            finalize(y, d, m, true, today),
+        ) {
+            (Some(preferred), Some(_)) => Some(preferred),
+            (Some((date, _)), None) | (None, Some((date, _))) => Some((date, false)),
+            (None, None) => None,
+        };
     }
     if let Some((y, m, d)) = capture_day_month_year(trimmed) {
         return finalize(y, m, d, false, today);
@@ -514,6 +528,30 @@ mod tests {
         assert_eq!(
             normalize_date("03/04/2026", Some("USD"), today()),
             Some(("2026-03-04".into(), true))
+        );
+    }
+
+    #[test]
+    fn date_with_equal_day_and_month_is_not_ambiguous() {
+        assert_eq!(
+            normalize_date("05/05/2026", Some("MYR"), today()),
+            Some(("2026-05-05".into(), false))
+        );
+    }
+
+    #[test]
+    fn date_whose_preferred_reading_is_in_the_future_uses_the_other_reading() {
+        // Day-first would be 9 Dec 2026, after today (27 Sep 2026), so the
+        // only real reading is 12 Sep 2026.
+        assert_eq!(
+            normalize_date("09/12/2026", Some("MYR"), today()),
+            Some(("2026-09-12".into(), false))
+        );
+        // Month-first (USD) would be 9 Dec 2026, in the future, so the
+        // day-first reading (12 Sep 2026) is the only real date.
+        assert_eq!(
+            normalize_date("12/09/2026", Some("USD"), today()),
+            Some(("2026-09-12".into(), false))
         );
     }
 

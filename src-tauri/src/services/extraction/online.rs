@@ -257,6 +257,7 @@ mod tests {
             raw_text: "",
             images: &images,
             default_currency: "MYR",
+            ocr_confidence: None,
         };
         let body = extractor().request_body(&input);
         assert_eq!(body["messages"][0]["role"], "system");

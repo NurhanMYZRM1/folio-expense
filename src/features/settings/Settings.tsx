@@ -155,6 +155,12 @@ export function Settings() {
                 onChange={(v) => update('offlineOcrEnabled', v)}
               />
               <Toggle
+                label="Convert foreign receipts to my default currency"
+                detail="Uses the European Central Bank's published rate for each receipt's date. Only the two currency codes and the date are sent online; receipts never leave this device."
+                checked={form.currencyConversionEnabled}
+                onChange={(v) => update('currencyConversionEnabled', v)}
+              />
+              <Toggle
                 label="Allow online AI receipt extraction"
                 detail="Send receipt images to your configured provider. Disabled by default."
                 checked={form.onlineEnabled}

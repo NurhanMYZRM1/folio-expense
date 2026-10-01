@@ -29,6 +29,8 @@ export const api = {
   createExpense: () => call<Expense>('create_expense'),
   editExpense: (edit: ExpenseEdit) => call<Expense>('edit_expense', { edit }),
   queueExtraction: (id: string) => call<void>('queue_extraction', { id }),
+  deleteExpenses: (ids: string[]) => call<number>('delete_expenses', { ids }),
+  convertPending: () => call<number>('convert_pending'),
   importReceipts: (paths: string[]) => call<ImportOutcome[]>('import_receipts', { paths }),
   receipt: (id: string) => call<ReceiptContent>('read_receipt', { id }),
   thumbnail: (id: string) => call<string | null>('read_thumbnail', { id }),
@@ -40,6 +42,8 @@ export const api = {
     call<Claim>('edit_claim', { id, version, title, description }),
   setClaimExpense: (claimId: string, expenseId: string, add: boolean) =>
     call<ClaimDetail>('set_claim_expense', { claimId, expenseId, add }),
+  addClaimExpenses: (claimId: string, expenseIds: string[]) =>
+    call<ClaimDetail>('add_claim_expenses', { claimId, expenseIds }),
   transitionClaim: (id: string, status: ClaimStatus) =>
     call<Claim>('transition_claim', { id, status }),
   requestPdf: (id: string) => call<string>('request_pdf', { id }),
@@ -56,8 +60,8 @@ export const api = {
   retryJob: (id: string) => call<void>('retry_job', { id }),
   tryOnline: (id: string, token: string, images: string[]) =>
     call<boolean>('try_online', { id, token, images }),
-  completeOcr: (id: string, token: string, rawText: string) =>
-    call<void>('complete_ocr', { id, token, rawText }),
+  completeOcr: (id: string, token: string, rawText: string, ocrConfidence: number | null) =>
+    call<void>('complete_ocr', { id, token, rawText, ocrConfidence }),
   completeThumbnail: (id: string, token: string, base64: string) =>
     call<void>('complete_thumbnail', { id, token, base64 }),
   exportSnapshot: (id: string, token: string) =>

@@ -75,6 +75,18 @@ pub struct Expense {
     pub sync_state: String,
     pub receipt_filename: Option<String>,
     pub claim_id: Option<String>,
+    /// Set when a foreign-currency receipt was converted: the currency and
+    /// amounts printed on the receipt. `currency`/`total`/`tax` then hold the
+    /// converted amounts that are claimed.
+    pub original_currency: Option<String>,
+    #[ts(type = "number | null")]
+    pub original_total_amount_minor: Option<i64>,
+    #[ts(type = "number | null")]
+    pub original_tax_amount_minor: Option<i64>,
+    /// Units of `currency` per one unit of `original_currency`, as published.
+    pub exchange_rate: Option<String>,
+    /// The business day the exchange rate is for.
+    pub exchange_rate_date: Option<String>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

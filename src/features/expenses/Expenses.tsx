@@ -8,6 +8,7 @@ import {
   ChevronRight,
   SlidersHorizontal,
   FileSpreadsheet,
+  Trash2,
 } from 'lucide-react';
 import { useWorkspace } from '../../app/providers';
 import { PageHeader } from '../../components/ui';
@@ -29,7 +30,9 @@ export function Expenses() {
     [page, setPage] = useState(1);
   const [selected, setSelected] = useState<Set<string>>(new Set()),
     [csvBusy, setCsvBusy] = useState(false),
-    [lastCsv, setLastCsv] = useState<CsvExport | null>(null);
+    [lastCsv, setLastCsv] = useState<CsvExport | null>(null),
+    [confirmDelete, setConfirmDelete] = useState(false),
+    [deleting, setDeleting] = useState(false);
   const filtered = expenses
     .filter(
       (e) =>
@@ -91,6 +94,21 @@ export function Expenses() {
   function clearSelection() {
     setSelected(new Set());
     setLastCsv(null);
+    setConfirmDelete(false);
+  }
+  async function deleteSelected() {
+    setDeleting(true);
+    try {
+      const count = await api.deleteExpenses([...selected]);
+      clearSelection();
+      await refresh();
+      notify(`Deleted ${count} expense${count === 1 ? '' : 's'} and their receipts.`);
+    } catch (e) {
+      notify(errorMessage(e), true);
+      setConfirmDelete(false);
+    } finally {
+      setDeleting(false);
+    }
   }
   async function exportSelected() {
     setCsvBusy(true);
@@ -235,6 +253,30 @@ export function Expenses() {
                   Open CSV
                 </button>
               </span>
+            )}
+            {confirmDelete ? (
+              <>
+                <span>Delete {selected.size} permanently, with their receipt files?</span>
+                <button
+                  className="button secondary small danger-text"
+                  disabled={deleting}
+                  onClick={() => void deleteSelected()}
+                >
+                  <Trash2 size={14} />
+                  {deleting ? 'Deleting…' : 'Delete'}
+                </button>
+                <button className="text-button" onClick={() => setConfirmDelete(false)}>
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <button
+                className="button secondary small danger-text"
+                onClick={() => setConfirmDelete(true)}
+              >
+                <Trash2 size={14} />
+                Delete
+              </button>
             )}
             <button className="text-button" onClick={clearSelection}>
               Clear selection

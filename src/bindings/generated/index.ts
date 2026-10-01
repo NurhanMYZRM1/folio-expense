@@ -2,7 +2,21 @@
 export type ExpenseStatus = "draft" | "extracting" | "needs_review" | "ready" | "submitted" | "archived";
 export type FieldSource = "online_ai" | "local_ocr" | "manual";
 export type FieldMeta = { confidence: number, source: FieldSource, };
-export type Expense = { id: string, receiptId: string | null, occurredAt: string | null, merchantName: string | null, totalAmountMinor: number | null, taxAmountMinor: number | null, currency: string | null, category: string, description: string, status: ExpenseStatus, fieldMeta: { [key in string]?: FieldMeta }, extractionConfidence: number | null, createdAt: string, updatedAt: string, version: number, syncState: string, receiptFilename: string | null, claimId: string | null, };
+export type Expense = { id: string, receiptId: string | null, occurredAt: string | null, merchantName: string | null, totalAmountMinor: number | null, taxAmountMinor: number | null, currency: string | null, category: string, description: string, status: ExpenseStatus, fieldMeta: { [key in string]?: FieldMeta }, extractionConfidence: number | null, createdAt: string, updatedAt: string, version: number, syncState: string, receiptFilename: string | null, claimId: string | null, 
+/**
+ * Set when a foreign-currency receipt was converted: the currency and
+ * amounts printed on the receipt. `currency`/`total`/`tax` then hold the
+ * converted amounts that are claimed.
+ */
+originalCurrency: string | null, originalTotalAmountMinor: number | null, originalTaxAmountMinor: number | null, 
+/**
+ * Units of `currency` per one unit of `original_currency`, as published.
+ */
+exchangeRate: string | null, 
+/**
+ * The business day the exchange rate is for.
+ */
+exchangeRateDate: string | null, };
 export type ExpenseEdit = { id: string, version: number, occurredAt: string | null, merchantName: string | null, totalAmountMinor: number | null, taxAmountMinor: number | null, currency: string | null, category: string, description: string, markReady: boolean, };
 export type ReceiptFile = { id: string, sha256: string, originalFilename: string, mimeType: string, relativePath: string, sizeBytes: number, createdAt: string, };
 export type ReceiptContent = { receipt: ReceiptFile, base64: string, };
@@ -15,6 +29,11 @@ export type ClaimStatus = "draft" | "submitted" | "archived";
 export type Claim = { id: string, claimNumber: string, title: string, description: string, status: ClaimStatus, currency: string, totalAmountMinor: number, expenseCount: number, createdAt: string, updatedAt: string, version: number, syncState: string, };
 export type ClaimDetail = { claim: Claim, expenses: Array<Expense>, };
 export type ExportSnapshot = { claim: Claim, expenses: Array<Expense>, receipts: Array<ReceiptFile>, company: string, employee: string, includeReceipts: boolean, generatedAt: string, };
-export type Settings = { theme: string, defaultCurrency: string, onlineEnabled: boolean, provider: string, apiBaseUrl: string, aiModel: string, offlineOcrEnabled: boolean, exportDirectory: string | null, includeReceipts: boolean, company: string, employee: string, };
+export type Settings = { theme: string, defaultCurrency: string, onlineEnabled: boolean, provider: string, apiBaseUrl: string, aiModel: string, offlineOcrEnabled: boolean, exportDirectory: string | null, includeReceipts: boolean, company: string, employee: string, 
+/**
+ * Convert foreign-currency receipts to `default_currency` using published
+ * exchange rates (only currency codes and a date are sent online).
+ */
+currencyConversionEnabled: boolean, };
 export type AppInfo = { dataDirectory: string, version: string, credentialConfigured: boolean, };
 export type CsvExport = { id: string, fileName: string, path: string, rows: number, };

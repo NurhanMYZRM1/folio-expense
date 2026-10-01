@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { enhanceForOcr } from './receiptRendering';
+import { enhanceForOcr, ocrScale } from './receiptRendering';
 function pixel(r: number, g: number, b: number, a = 255): Uint8ClampedArray {
   return new Uint8ClampedArray([r, g, b, a]);
 }
@@ -49,5 +49,13 @@ describe('enhanceForOcr', () => {
     const nearFlat = new Uint8ClampedArray([100, 100, 100, 255, 110, 110, 110, 255]);
     enhanceForOcr(nearFlat);
     expect([...nearFlat]).toEqual([100, 100, 100, 255, 110, 110, 110, 255]);
+  });
+});
+describe('ocrScale', () => {
+  it('enlarges small receipts up to 2× and leaves large ones alone', () => {
+    expect(ocrScale(400, 600)).toBe(2);
+    expect(ocrScale(850, 1050)).toBeCloseTo(1600 / 1050);
+    expect(ocrScale(1700, 2200)).toBe(1);
+    expect(ocrScale(0, 0)).toBe(1);
   });
 });

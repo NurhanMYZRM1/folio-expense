@@ -195,6 +195,7 @@ impl AppService {
             raw_text: "",
             images: &images,
             default_currency: &settings.default_currency,
+            ocr_confidence: None,
         }) {
             Ok(result) => {
                 self.complete_extraction(id, token, result, FieldSource::OnlineAi, None)?;
@@ -214,10 +215,18 @@ impl AppService {
             }
         }
     }
-    pub fn complete_ocr(&self, id: &str, token: &str, raw_text: String) -> Result<()> {
+    pub fn complete_ocr(
+        &self,
+        id: &str,
+        token: &str,
+        raw_text: String,
+        ocr_confidence: Option<f64>,
+    ) -> Result<()> {
         if raw_text.len() > 500_000 {
             return Err(AppError::invalid("OCR output is too large."));
         }
+        // Tesseract reports 0–100; anything else is treated as unknown.
+        let ocr_confidence = ocr_confidence.filter(|c| c.is_finite() && (0.0..=100.0).contains(c));
         let settings = self.settings()?;
         if !settings.offline_ocr_enabled {
             return Err(AppError::new(
@@ -229,6 +238,7 @@ impl AppService {
             raw_text: &raw_text,
             images: &[],
             default_currency: &settings.default_currency,
+            ocr_confidence,
         })?;
         self.complete_extraction(id, token, result, FieldSource::LocalOcr, Some(raw_text))
     }
@@ -240,10 +250,13 @@ impl AppService {
         source: FieldSource,
         raw_text: Option<String>,
     ) -> Result<()> {
+        let today = chrono::Local::now().date_naive();
+        // Download the exchange rate a foreign receipt needs before taking the database lock.
+        let preview = sanitize::sanitize(result.clone(), &self.settings()?.default_currency, today);
+        self.prefetch_for(preview.currency.as_deref(), preview.date.as_deref());
         let mut db = self.conn()?;
         let tx = db.transaction()?;
         let settings = Self::settings_in(&tx)?;
-        let today = chrono::Local::now().date_naive();
         let result = sanitize::sanitize(result, &settings.default_currency, today);
         normalizer::validate(&result)?;
         let job = lease(&tx, id, token, Some("extract_receipt"))?;
@@ -251,6 +264,9 @@ impl AppService {
         if matches!(e.status, ExpenseStatus::Submitted | ExpenseStatus::Archived) {
             return Err(AppError::invalid("The expense is locked by its claim."));
         }
+        // Extraction reads the receipt's own amounts; conversion is re-derived below.
+        let before = e.clone();
+        e.clear_conversion();
         macro_rules! merge {
             ($field:ident,$value:expr,$key:literal) => {
                 if !e
@@ -292,6 +308,8 @@ impl AppService {
                 );
             }
         }
+        Self::reconvert_in_tx(&tx, &mut e, &before, &settings)?;
+        Self::check_claim_currency(&tx, &e)?;
         validate_values(&ExpenseEdit {
             id: e.id.clone(),
             version: e.version,

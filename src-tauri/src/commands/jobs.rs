@@ -45,8 +45,12 @@ pub(super) async fn complete_ocr(
     id: String,
     token: String,
     raw_text: String,
+    ocr_confidence: Option<f64>,
 ) -> Result<()> {
-    blocking(s, move |s| s.complete_ocr(&id, &token, raw_text)).await
+    blocking(s, move |s| {
+        s.complete_ocr(&id, &token, raw_text, ocr_confidence)
+    })
+    .await
 }
 #[tauri::command]
 pub(super) async fn complete_thumbnail(
