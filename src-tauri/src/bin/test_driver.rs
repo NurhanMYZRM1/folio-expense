@@ -82,7 +82,12 @@ fn dispatch(s: &AppService, command: &str, a: Value) -> Result<Value> {
         )),
         "retry_job" => out!(s.retry_job(id())),
         "try_online" => out!(s.try_online(id(), token(), arg!("images"))),
-        "complete_ocr" => out!(s.complete_ocr(id(), token(), arg!("rawText"))),
+        "complete_ocr" => out!(s.complete_ocr(
+            id(),
+            token(),
+            arg!("rawText"),
+            a.get("ocrConfidence").and_then(serde_json::Value::as_f64)
+        )),
         "complete_thumbnail" => out!(s.complete_thumbnail(
             id(),
             token(),

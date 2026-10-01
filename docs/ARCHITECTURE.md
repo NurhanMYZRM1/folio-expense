@@ -54,7 +54,7 @@ Leases use random tokens; stale completions cannot overwrite the current job. He
 - Rust deserializes with unknown-field rejection and independently validates dates, currency, categories, amounts, tax/total relationship, and confidence bounds.
 - A later extraction merges only fields whose source is not `manual`, including protection for manually cleared values. Optimistic versions reject stale editor writes with a reload message.
 - Low-confidence core fields result in `needs_review`. A complete high-confidence extraction can be ready. Confidence indicates extraction certainty, not policy approval.
-- Offline heuristics use labelled totals/tax, ISO or day-first dates, supported currency codes, and a candidate merchant line. Undetected currency defaults to the user's preference with low confidence.
+- Offline heuristics use labelled totals/tax, ISO or day-first dates, supported currency codes, and a candidate merchant line, and earn confidence from cross-checks on the receipt itself so a clean scan is ready without review: the total is confirmed by subtotal + tax + service ± rounding − discount, by cash − change, or by a card/e-wallet line paying the same amount (or, on a clearly read page, by being the largest amount); a numeric date's day/month order follows the currency printed on the receipt, and a reading in the future is discarded; a missing currency is inferred from a Malaysian/Singapore address or registration, else the Settings currency is trusted unless the receipt shows a conflicting symbol; a category is suggested from merchant keywords. Tesseract's page confidence travels with the OCR text, and a page under 60/100 caps every field below the ready threshold so unreadable scans still go to review.
 
 ## Secrets and renderer security
 

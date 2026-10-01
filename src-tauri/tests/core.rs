@@ -245,7 +245,7 @@ fn model_output_validation_is_strict() {
     assert!(serde_json::from_value::<Extraction>(extra).is_err());
 }
 #[test]
-fn offline_heuristics_extract_integer_money_and_mark_review() {
+fn offline_cross_checked_receipt_is_ready_without_review() {
     let (t, s) = workspace();
     let id = import(&t, &s);
     let j = extraction_job(&s);
@@ -253,13 +253,45 @@ fn offline_heuristics_extract_integer_money_and_mark_review() {
         &j.job.id,
         &j.token,
         "KOPI HOUSE\n2026-09-27\nSubtotal RM 79.72\nSST 6% 4.78\nTOTAL MYR 84.50\n".into(),
+        Some(91.0),
+    )
+    .unwrap();
+    let e = s.expense(&id).unwrap();
+    assert_eq!(e.merchant_name.as_deref(), Some("KOPI HOUSE"));
+    assert_eq!(e.occurred_at.as_deref(), Some("2026-09-27"));
+    assert_eq!(e.total_amount_minor, Some(8450));
+    assert_eq!(e.tax_amount_minor, Some(478));
+    assert_eq!(e.currency.as_deref(), Some("MYR"));
+    assert_eq!(e.category, "Meals");
+    assert_eq!(e.status, ExpenseStatus::Ready);
+}
+#[test]
+fn offline_unreadable_or_unconfirmed_receipts_still_need_review() {
+    let (t, s) = workspace();
+    let id = import(&t, &s);
+    let j = extraction_job(&s);
+    // The same receipt, but Tesseract was unsure of what it read.
+    s.complete_ocr(
+        &j.job.id,
+        &j.token,
+        "KOPI HOUSE\n2026-09-27\nSubtotal RM 79.72\nSST 6% 4.78\nTOTAL MYR 84.50\n".into(),
+        Some(38.0),
     )
     .unwrap();
     let e = s.expense(&id).unwrap();
     assert_eq!(e.total_amount_minor, Some(8450));
-    assert_eq!(e.tax_amount_minor, Some(478));
-    assert_eq!(e.currency.as_deref(), Some("MYR"));
     assert_eq!(e.status, ExpenseStatus::NeedsReview);
+    // A clear page whose total nothing else on the receipt agrees with.
+    s.queue_extraction(&id).unwrap();
+    let j = extraction_job(&s);
+    s.complete_ocr(
+        &j.job.id,
+        &j.token,
+        "KOPI HOUSE\n2026-09-27\nNasi lemak RM 30.00\nTOTAL MYR 12.00\n".into(),
+        Some(91.0),
+    )
+    .unwrap();
+    assert_eq!(s.expense(&id).unwrap().status, ExpenseStatus::NeedsReview);
 }
 #[test]
 fn manual_edits_and_clears_survive_later_extraction() {
@@ -349,7 +381,7 @@ fn crash_recovery_invalidates_old_lease_and_preserves_data() {
         ExpenseStatus::NeedsReview
     );
     assert!(reopened
-        .complete_ocr(&j.job.id, &j.token, "text".into())
+        .complete_ocr(&j.job.id, &j.token, "text".into(), None)
         .is_err());
     let new_job = reopened.take_job().unwrap().unwrap();
     assert_eq!(new_job.job.id, j.job.id);
@@ -364,6 +396,7 @@ fn full_service_workflow_exports_snapshot_and_reopens() {
         &j.job.id,
         &j.token,
         "KOPI HOUSE\n2026-09-27\nTOTAL MYR 84.50\nTAX 4.78".into(),
+        None,
     )
     .unwrap();
     s.edit_expense(edit(&s, &id)).unwrap();

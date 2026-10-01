@@ -83,7 +83,25 @@ export function enhanceForOcr(data: Uint8ClampedArray): void {
     data[o + 3] = 255;
   }
 }
-export function preprocessCanvas(canvas: HTMLCanvasElement): HTMLCanvasElement {
+// Tesseract reads best when letters are roughly 20–30 px tall, so small photos
+// and screenshots are enlarged (at most 2×) before OCR.
+const MIN_OCR_LONG_SIDE = 1600;
+export function ocrScale(width: number, height: number): number {
+  const longest = Math.max(width, height);
+  return longest > 0 && longest < MIN_OCR_LONG_SIDE ? Math.min(2, MIN_OCR_LONG_SIDE / longest) : 1;
+}
+export function preprocessCanvas(source: HTMLCanvasElement): HTMLCanvasElement {
+  const scale = ocrScale(source.width, source.height);
+  let canvas = source;
+  if (scale > 1) {
+    canvas = document.createElement('canvas');
+    canvas.width = Math.round(source.width * scale);
+    canvas.height = Math.round(source.height * scale);
+    const enlarge = canvas.getContext('2d');
+    if (!enlarge) throw new Error('Unable to preprocess this receipt image.');
+    enlarge.imageSmoothingQuality = 'high';
+    enlarge.drawImage(source, 0, 0, canvas.width, canvas.height);
+  }
   const context = canvas.getContext('2d');
   if (!context) throw new Error('Unable to preprocess this receipt image.');
   const imageData = context.getImageData(0, 0, canvas.width, canvas.height);

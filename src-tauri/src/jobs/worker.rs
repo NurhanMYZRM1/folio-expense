@@ -195,6 +195,7 @@ impl AppService {
             raw_text: "",
             images: &images,
             default_currency: &settings.default_currency,
+            ocr_confidence: None,
         }) {
             Ok(result) => {
                 self.complete_extraction(id, token, result, FieldSource::OnlineAi, None)?;
@@ -214,10 +215,18 @@ impl AppService {
             }
         }
     }
-    pub fn complete_ocr(&self, id: &str, token: &str, raw_text: String) -> Result<()> {
+    pub fn complete_ocr(
+        &self,
+        id: &str,
+        token: &str,
+        raw_text: String,
+        ocr_confidence: Option<f64>,
+    ) -> Result<()> {
         if raw_text.len() > 500_000 {
             return Err(AppError::invalid("OCR output is too large."));
         }
+        // Tesseract reports 0–100; anything else is treated as unknown.
+        let ocr_confidence = ocr_confidence.filter(|c| c.is_finite() && (0.0..=100.0).contains(c));
         let settings = self.settings()?;
         if !settings.offline_ocr_enabled {
             return Err(AppError::new(
@@ -229,6 +238,7 @@ impl AppService {
             raw_text: &raw_text,
             images: &[],
             default_currency: &settings.default_currency,
+            ocr_confidence,
         })?;
         self.complete_extraction(id, token, result, FieldSource::LocalOcr, Some(raw_text))
     }

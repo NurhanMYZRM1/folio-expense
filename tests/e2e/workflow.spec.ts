@@ -71,9 +71,14 @@ test('offline receipt → real Rust/SQLite → OCR → review → claim → PDF 
       .poll(async () => (await bridge.call<Expense[]>('list_expenses'))[0]?.status, {
         timeout: 80_000,
       })
-      .toBe('needs_review');
+      // Subtotal + tax = total on a clear scan, so no manual review is needed.
+      .toBe('ready');
     let [expense] = await bridge.call<Expense[]>('list_expenses');
     expect(expense.totalAmountMinor).toBe(8450);
+    expect(expense.taxAmountMinor).toBe(478);
+    expect(expense.occurredAt).toBe('2026-09-27');
+    expect(expense.currency).toBe('MYR');
+    expect(expense.category).toBe('Meals');
     expect(expense.merchantName).toContain('KOPI');
     const receiptId = expense.receiptId!;
     await page.getByRole('button', { name: /Drag receipts into your workspace/ }).click();
@@ -192,9 +197,11 @@ test('multi-page PDF receipt renders and extracts entirely offline', async ({ pa
       .poll(async () => (await bridge.call<Expense[]>('list_expenses'))[0]?.status, {
         timeout: 80_000,
       })
-      .toBe('needs_review');
+      // The total is the largest amount on a clearly read page.
+      .toBe('ready');
     const [expense] = await bridge.call<Expense[]>('list_expenses');
     expect(expense.totalAmountMinor).toBe(31800);
+    expect(expense.category).toBe('Accommodation');
     expect(expense.merchantName).toContain('CITY HOTEL');
     expect((await bridge.call<Job[]>('list_jobs')).every((job) => job.status === 'completed')).toBe(
       true,

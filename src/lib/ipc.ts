@@ -56,8 +56,8 @@ export const api = {
   retryJob: (id: string) => call<void>('retry_job', { id }),
   tryOnline: (id: string, token: string, images: string[]) =>
     call<boolean>('try_online', { id, token, images }),
-  completeOcr: (id: string, token: string, rawText: string) =>
-    call<void>('complete_ocr', { id, token, rawText }),
+  completeOcr: (id: string, token: string, rawText: string, ocrConfidence: number | null) =>
+    call<void>('complete_ocr', { id, token, rawText, ocrConfidence }),
   completeThumbnail: (id: string, token: string, base64: string) =>
     call<void>('complete_thumbnail', { id, token, base64 }),
   exportSnapshot: (id: string, token: string) =>
