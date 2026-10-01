@@ -210,6 +210,11 @@ export async function generateClaimPdf(
     text(shorten(e.category, colCategoryW, 8), colCategory, y, 8, gray);
     const amount = formatMoney(e.totalAmountMinor, e.currency ?? snapshot.claim.currency);
     text(amount, colAmountRight - font.widthOfTextAtSize(amount, 9), y, 9);
+    if (e.originalCurrency) {
+      // Converted foreign receipt: show what was paid and the rate used.
+      const original = `${formatMoney(e.originalTotalAmountMinor, e.originalCurrency)} @ ${e.exchangeRate}`;
+      text(original, colAmountRight - font.widthOfTextAtSize(original, 7), y - 12, 7, gray);
+    }
     text(
       e.receiptId ? `R${String(index + 1).padStart(3, '0')}` : 'Manual',
       colReceipt,

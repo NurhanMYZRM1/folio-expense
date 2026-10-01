@@ -154,6 +154,11 @@ const fixture = (): ExportSnapshot => ({
       syncState: 'local_only',
       receiptFilename: 'receipt.pdf',
       claimId: 'claim-1',
+      originalCurrency: null,
+      originalTotalAmountMinor: null,
+      originalTaxAmountMinor: null,
+      exchangeRate: null,
+      exchangeRateDate: null,
     },
   ],
   receipts: [

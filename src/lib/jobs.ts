@@ -186,9 +186,22 @@ export function startJobRunner(callbacks: Callbacks): () => void {
   };
   const interval = setInterval(() => void tick(), 1500);
   void tick();
+  // Foreign receipts imported while offline are converted once rates can be
+  // downloaded. Failures (still offline) are silent; the next round retries.
+  const convert = async () => {
+    if (stopped) return;
+    try {
+      if (await api.convertPending()) await callbacks.refresh();
+    } catch {
+      /* retried on the next round */
+    }
+  };
+  const conversions = setInterval(() => void convert(), 120_000);
+  void convert();
   return () => {
     stopped = true;
     clearInterval(interval);
+    clearInterval(conversions);
     if (!current && ocr) void ocr.terminate();
   };
 }

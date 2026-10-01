@@ -1,17 +1,21 @@
 use folio::{
     domain::{
         claim::ClaimStatus,
+        exchange::ExchangeRate,
         expense::{currency_exponent, parse_money, ExpenseEdit, ExpenseStatus},
         extraction::{Extraction, FieldSource},
     },
-    error::Result,
+    error::{AppError, Result},
     security::secrets::SecretStore,
-    services::AppService,
+    services::{exchange_rates::RateSource, AppService},
     storage::paths::AppPaths,
 };
 use std::{
     fs,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+        Arc, Mutex,
+    },
 };
 use tempfile::TempDir;
 use zeroize::Zeroizing;
@@ -30,9 +34,42 @@ impl SecretStore for MemorySecrets {
         Ok(())
     }
 }
-fn workspace() -> (TempDir, AppService) {
+/// A fixed table of exchange rates standing in for the internet.
+#[derive(Default)]
+struct FixedRates {
+    offline: AtomicBool,
+    downloads: AtomicUsize,
+}
+impl RateSource for FixedRates {
+    fn fetch(&self, base: &str, quote: &str, date: &str) -> Result<ExchangeRate> {
+        if self.offline.load(Ordering::SeqCst) {
+            return Err(AppError::new("RateOffline", "offline"));
+        }
+        self.downloads.fetch_add(1, Ordering::SeqCst);
+        let rate = match (base, quote) {
+            ("USD", "MYR") => "4.2105",
+            ("JPY", "MYR") => "0.029",
+            _ => return Err(AppError::new("RateUnavailable", "no rate")),
+        };
+        Ok(ExchangeRate {
+            base: base.into(),
+            quote: quote.into(),
+            rate_date: date.into(),
+            rate: rate.into(),
+            source: "test".into(),
+        })
+    }
+}
+fn workspace_with_rates() -> (TempDir, AppService, Arc<FixedRates>) {
     let t = tempfile::tempdir().unwrap();
-    let s = AppService::open(t.path().join("app"), Arc::new(MemorySecrets::default())).unwrap();
+    let rates = Arc::new(FixedRates::default());
+    let s = AppService::open(t.path().join("app"), Arc::new(MemorySecrets::default()))
+        .unwrap()
+        .with_rate_source(rates.clone());
+    (t, s, rates)
+}
+fn workspace() -> (TempDir, AppService) {
+    let (t, s, _) = workspace_with_rates();
     (t, s)
 }
 fn receipt(t: &TempDir) -> std::path::PathBuf {
@@ -43,6 +80,31 @@ fn receipt(t: &TempDir) -> std::path::PathBuf {
 }
 fn import(t: &TempDir, s: &AppService) -> String {
     s.import_receipt(&receipt(t)).unwrap()
+}
+/// Imports a distinct receipt image (a different shade per `n`).
+fn import_another(t: &TempDir, s: &AppService, n: u8) -> String {
+    let path = t.path().join(format!("receipt-{n}.png"));
+    image::RgbImage::from_pixel(40, 70, image::Rgb([n, 200, 200]))
+        .save(&path)
+        .unwrap();
+    s.import_receipt(&path).unwrap()
+}
+fn usd_result() -> Extraction {
+    serde_json::from_value(serde_json::json!({"merchantName":"Joe's Diner","date":"2026-09-25","totalAmountMinor":4500,"taxAmountMinor":250,"currency":"USD","suggestedCategory":"Meals","confidence":{"merchantName":0.98,"date":0.99,"total":0.99,"tax":0.82,"currency":0.99,"category":0.9}})).unwrap()
+}
+/// Imports a receipt and completes its extraction with `result`.
+fn extracted(t: &TempDir, s: &AppService, n: u8, result: Extraction) -> String {
+    let id = import_another(t, s, n);
+    let j = extraction_job(s);
+    assert_eq!(j.job.entity_id, id);
+    s.complete_extraction(&j.job.id, &j.token, result, FieldSource::OnlineAi, None)
+        .unwrap();
+    // Leave the thumbnail job out of later `extraction_job` calls.
+    while let Some(j) = s.take_job().unwrap() {
+        s.fail_job(&j.job.id, &j.token, "not part of this test")
+            .unwrap();
+    }
+    id
 }
 fn extraction_job(s: &AppService) -> folio::domain::extraction::JobLease {
     loop {
@@ -100,7 +162,7 @@ fn migrations_are_idempotent_and_constraints_work() {
             |r| r.get(0),
         )
         .unwrap();
-    assert_eq!(count, 8);
+    assert_eq!(count, 9);
     let version: i32 = db
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
@@ -354,8 +416,9 @@ fn claim_totals_currency_and_membership_are_enforced() {
     assert_eq!(d.claim.total_amount_minor, 8450);
     assert_eq!(d.claim.expense_count, 1);
     assert!(s.set_claim_expense(&claim.id, &id, true).is_err());
+    // BHD has no published rate, so it can't be converted back to the claim's MYR.
     let mut change = edit(&s, &id);
-    change.currency = Some("USD".into());
+    change.currency = Some("BHD".into());
     assert!(s.edit_expense(change).is_err());
     s.transition_claim(&claim.id, ClaimStatus::Submitted)
         .unwrap();
@@ -539,7 +602,11 @@ fn csv_export_formats_by_currency_exponent_dedupes_and_rejects_unknown_ids() {
         .unwrap();
     let bytes = fs::read(&export.path).unwrap();
     let text = String::from_utf8(bytes[3..].to_vec()).unwrap();
-    assert!(text.contains(",JPY,1500,0,"));
+    // JPY 1,500 is converted at 0.029 to MYR 43.50; the receipt amount and
+    // rate are kept in the last columns, formatted with JPY's 0 decimals.
+    assert!(text.contains(",MYR,43.50,0.00,"));
+    assert!(text.contains(",JPY,1500,0.029,2026-09-27\r\n"));
+    // BHD has no published rate, so it stays as printed (3 decimals).
     assert!(text.contains(",BHD,12.345,0.005,"));
     let dedup = s
         .export_expenses_csv(vec![jpy_id.clone(), jpy_id.clone()])
@@ -614,4 +681,203 @@ fn csv_export_copies_to_export_directory_and_reports_conflicts() {
         second_contents.contains("99.99"),
         "the second copy must contain the updated amount"
     );
+}
+
+#[test]
+fn foreign_receipt_is_converted_to_home_currency_at_the_receipt_date_rate() {
+    let (t, s) = workspace();
+    let id = extracted(&t, &s, 1, usd_result());
+    let e = s.expense(&id).unwrap();
+    // USD 45.00 × 4.2105 = MYR 189.4725 → 189.47; tax 2.50 → 10.53
+    assert_eq!(e.currency.as_deref(), Some("MYR"));
+    assert_eq!(e.total_amount_minor, Some(18947));
+    assert_eq!(e.tax_amount_minor, Some(1053));
+    assert_eq!(e.original_currency.as_deref(), Some("USD"));
+    assert_eq!(e.original_total_amount_minor, Some(4500));
+    assert_eq!(e.original_tax_amount_minor, Some(250));
+    assert_eq!(e.exchange_rate.as_deref(), Some("4.2105"));
+    assert_eq!(e.exchange_rate_date.as_deref(), Some("2026-09-25"));
+    assert_eq!(e.status, ExpenseStatus::Ready);
+    // It can go straight into a MYR claim, which totals in MYR.
+    let claim = s.create_claim("Trip".into(), "MYR".into()).unwrap();
+    let detail = s.add_claim_expenses(&claim.id, vec![id]).unwrap();
+    assert_eq!(detail.claim.total_amount_minor, 18947);
+}
+#[test]
+fn offline_conversion_waits_and_finishes_when_back_online() {
+    let (t, s, rates) = workspace_with_rates();
+    rates.offline.store(true, Ordering::SeqCst);
+    let id = extracted(&t, &s, 1, usd_result());
+    let e = s.expense(&id).unwrap();
+    assert_eq!(e.currency.as_deref(), Some("USD"));
+    assert_eq!(e.total_amount_minor, Some(4500));
+    assert_eq!(e.original_currency, None);
+    assert_eq!(s.convert_pending().unwrap(), 0);
+    rates.offline.store(false, Ordering::SeqCst);
+    assert_eq!(s.convert_pending().unwrap(), 1);
+    let e = s.expense(&id).unwrap();
+    assert_eq!(e.currency.as_deref(), Some("MYR"));
+    assert_eq!(e.total_amount_minor, Some(18947));
+    // Nothing left to convert, and the rate is cached locally.
+    assert_eq!(s.convert_pending().unwrap(), 0);
+    assert_eq!(rates.downloads.load(Ordering::SeqCst), 1);
+}
+#[test]
+fn editing_the_receipt_amount_reconverts_and_other_edits_keep_the_conversion() {
+    let (t, s, rates) = workspace_with_rates();
+    let id = extracted(&t, &s, 1, usd_result());
+    let e = s.expense(&id).unwrap();
+    // The editor works on the receipt's own amounts.
+    let receipt_edit = |e: &folio::domain::expense::Expense| ExpenseEdit {
+        id: e.id.clone(),
+        version: e.version,
+        occurred_at: e.occurred_at.clone(),
+        merchant_name: e.merchant_name.clone(),
+        total_amount_minor: e.original_total_amount_minor,
+        tax_amount_minor: e.original_tax_amount_minor,
+        currency: e.original_currency.clone(),
+        category: e.category.clone(),
+        description: e.description.clone(),
+        mark_ready: true,
+    };
+    let mut notes = receipt_edit(&e);
+    notes.description = "Team dinner".into();
+    let e = s.edit_expense(notes).unwrap();
+    assert_eq!(e.total_amount_minor, Some(18947));
+    assert_eq!(e.original_total_amount_minor, Some(4500));
+    let mut corrected = receipt_edit(&e);
+    corrected.total_amount_minor = Some(5000);
+    let e = s.edit_expense(corrected).unwrap();
+    // USD 50.00 × 4.2105 = MYR 210.525 → 210.53
+    assert_eq!(e.total_amount_minor, Some(21053));
+    assert_eq!(e.original_total_amount_minor, Some(5000));
+    assert_eq!(e.field_meta["total"].source, FieldSource::Manual);
+    // Switching the receipt to the home currency drops the conversion.
+    let mut home = receipt_edit(&e);
+    home.currency = Some("MYR".into());
+    let e = s.edit_expense(home).unwrap();
+    assert_eq!(e.currency.as_deref(), Some("MYR"));
+    assert_eq!(e.total_amount_minor, Some(5000));
+    assert_eq!(e.original_currency, None);
+    assert_eq!(e.exchange_rate, None);
+    assert_eq!(rates.downloads.load(Ordering::SeqCst), 1);
+}
+#[test]
+fn conversion_can_be_turned_off_and_unknown_rates_keep_the_receipt_currency() {
+    let (t, s) = workspace();
+    let mut settings = s.settings().unwrap();
+    settings.currency_conversion_enabled = false;
+    s.save_settings(settings).unwrap();
+    let id = extracted(&t, &s, 1, usd_result());
+    assert_eq!(s.expense(&id).unwrap().currency.as_deref(), Some("USD"));
+    assert_eq!(s.convert_pending().unwrap(), 0);
+    let mut settings = s.settings().unwrap();
+    settings.currency_conversion_enabled = true;
+    s.save_settings(settings).unwrap();
+    // A currency with no published rate (BHD) stays as printed.
+    let mut bhd = usd_result();
+    bhd.currency = Some("BHD".into());
+    bhd.total_amount_minor = Some(12500);
+    bhd.tax_amount_minor = None;
+    let bhd_id = extracted(&t, &s, 2, bhd);
+    assert_eq!(s.expense(&bhd_id).unwrap().currency.as_deref(), Some("BHD"));
+    // Turning conversion back on converts the waiting USD receipt.
+    assert_eq!(s.convert_pending().unwrap(), 1);
+    assert_eq!(s.expense(&id).unwrap().currency.as_deref(), Some("MYR"));
+}
+#[test]
+fn deleting_expenses_removes_receipts_and_allows_reimport() {
+    let (t, s) = workspace();
+    let id = import(&t, &s);
+    // Refused while the receipt is being read.
+    let j = extraction_job(&s);
+    let err = s.delete_expenses(vec![id.clone()]).unwrap_err();
+    assert!(
+        err.message.contains("still being processed"),
+        "{}",
+        err.message
+    );
+    s.complete_extraction(&j.job.id, &j.token, result(), FieldSource::OnlineAi, None)
+        .unwrap();
+    let e = s.expense(&id).unwrap();
+    let receipt_dir = s
+        .paths
+        .root
+        .join("receipts")
+        .join(e.receipt_id.clone().unwrap());
+    assert!(receipt_dir.exists());
+    let claim = s.create_claim("Trip".into(), "MYR".into()).unwrap();
+    s.add_claim_expenses(&claim.id, vec![id.clone()]).unwrap();
+    // Refused while its claim is submitted; allowed once reopened as a draft.
+    s.transition_claim(&claim.id, ClaimStatus::Submitted)
+        .unwrap();
+    assert!(s.delete_expenses(vec![id.clone()]).is_err());
+    s.transition_claim(&claim.id, ClaimStatus::Draft).unwrap();
+    assert_eq!(s.delete_expenses(vec![id.clone(), id.clone()]).unwrap(), 1);
+    assert_eq!(s.expense(&id).unwrap_err().code, "NotFound");
+    assert!(!receipt_dir.exists());
+    let claim = s.claim(&claim.id).unwrap().claim;
+    assert_eq!((claim.expense_count, claim.total_amount_minor), (0, 0));
+    assert!(s.jobs().unwrap().iter().all(|j| j.entity_id != id));
+    // The same file can be imported again.
+    let again = import(&t, &s);
+    assert_ne!(again, id);
+    // Manual expenses (no receipt) can be deleted too; unknown IDs change nothing.
+    let manual = s.create_expense().unwrap().id;
+    assert!(s
+        .delete_expenses(vec![manual.clone(), "missing".into()])
+        .is_err());
+    assert!(s.expense(&manual).is_ok());
+    assert_eq!(s.delete_expenses(vec![manual]).unwrap(), 1);
+}
+#[test]
+fn imported_receipts_needing_review_can_be_added_to_a_claim_in_bulk() {
+    let (t, s) = workspace();
+    let ready = extracted(&t, &s, 1, result());
+    let mut unsure = result();
+    unsure.confidence.insert("total".into(), 0.4);
+    let review = extracted(&t, &s, 2, unsure);
+    assert_eq!(
+        s.expense(&review).unwrap().status,
+        ExpenseStatus::NeedsReview
+    );
+    let mut usd = usd_result();
+    usd.currency = Some("BHD".into());
+    usd.tax_amount_minor = None;
+    let foreign = extracted(&t, &s, 3, usd);
+    let claim = s.create_claim("Trip".into(), "MYR".into()).unwrap();
+    // A wrong-currency expense rejects the whole batch.
+    let err = s
+        .add_claim_expenses(&claim.id, vec![ready.clone(), foreign])
+        .unwrap_err();
+    assert!(err.message.contains("BHD"), "{}", err.message);
+    assert_eq!(s.claim(&claim.id).unwrap().claim.expense_count, 0);
+    let detail = s
+        .add_claim_expenses(&claim.id, vec![ready.clone(), review.clone()])
+        .unwrap();
+    assert_eq!(detail.claim.expense_count, 2);
+    assert_eq!(detail.claim.total_amount_minor, 10000);
+    // Already claimed.
+    assert!(s.add_claim_expenses(&claim.id, vec![ready]).is_err());
+    // Submitting and exporting wait until every expense is reviewed.
+    assert!(s
+        .transition_claim(&claim.id, ClaimStatus::Submitted)
+        .is_err());
+    assert!(s.request_pdf(&claim.id).is_err());
+    let e = s.expense(&review).unwrap();
+    s.edit_expense(ExpenseEdit {
+        id: review.clone(),
+        version: e.version,
+        occurred_at: e.occurred_at,
+        merchant_name: e.merchant_name,
+        total_amount_minor: e.total_amount_minor,
+        tax_amount_minor: e.tax_amount_minor,
+        currency: e.currency,
+        category: e.category,
+        description: e.description,
+        mark_ready: true,
+    })
+    .unwrap();
+    s.transition_claim(&claim.id, ClaimStatus::Submitted)
+        .unwrap();
 }

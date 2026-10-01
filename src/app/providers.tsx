@@ -24,6 +24,7 @@ export const defaultSettings: Settings = {
   includeReceipts: true,
   company: '',
   employee: '',
+  currencyConversionEnabled: true,
 };
 type Notice = { id: number; text: string; error: boolean };
 type Store = {

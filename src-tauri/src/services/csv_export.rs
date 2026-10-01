@@ -19,7 +19,7 @@ pub struct CsvExport {
     pub path: String,
     pub rows: u32,
 }
-const HEADER: [&str; 13] = [
+const HEADER: [&str; 17] = [
     "Claim Number",
     "Claim Title",
     "Receipt Ref",
@@ -33,6 +33,10 @@ const HEADER: [&str; 13] = [
     "Status",
     "Receipt File",
     "Expense ID",
+    "Original Currency",
+    "Original Amount",
+    "Exchange Rate",
+    "Rate Date",
 ];
 struct CsvRow {
     claim_number: String,
@@ -48,6 +52,11 @@ struct CsvRow {
     status: String,
     receipt_file: String,
     expense_id: String,
+    /// Receipt currency/amount and rate when the expense was converted.
+    original_currency: String,
+    original_amount_minor: Option<i64>,
+    exchange_rate: String,
+    rate_date: String,
 }
 /// Prefixes a cell with `'` when it starts with a character a spreadsheet would
 /// treat as the start of a formula, per the CSV export's formula-injection guard.
@@ -131,6 +140,10 @@ fn render(rows: &[CsvRow]) -> Vec<u8> {
             text_cell(&r.status),
             text_cell(&r.receipt_file),
             text_cell(&r.expense_id),
+            text_cell(&r.original_currency),
+            money_cell(r.original_amount_minor, &r.original_currency),
+            text_cell(&r.exchange_rate),
+            text_cell(&r.rate_date),
         ];
         out.extend_from_slice(cells.join(",").as_bytes());
         out.extend_from_slice(b"\r\n");
@@ -167,6 +180,10 @@ impl AppService {
                 status: e.status.as_str().to_string(),
                 receipt_file: e.receipt_filename.clone().unwrap_or_default(),
                 expense_id: e.id.clone(),
+                original_currency: e.original_currency.clone().unwrap_or_default(),
+                original_amount_minor: e.original_total_amount_minor,
+                exchange_rate: e.exchange_rate.clone().unwrap_or_default(),
+                rate_date: e.exchange_rate_date.clone().unwrap_or_default(),
             })
             .collect();
         let file_name = format!("Folio-{}.csv", claim.claim_number);
@@ -214,6 +231,10 @@ impl AppService {
                 status: e.status.as_str().to_string(),
                 receipt_file: e.receipt_filename.clone().unwrap_or_default(),
                 expense_id: e.id.clone(),
+                original_currency: e.original_currency.clone().unwrap_or_default(),
+                original_amount_minor: e.original_total_amount_minor,
+                exchange_rate: e.exchange_rate.clone().unwrap_or_default(),
+                rate_date: e.exchange_rate_date.clone().unwrap_or_default(),
             });
         }
         drop(db);
@@ -324,6 +345,10 @@ mod tests {
             status: "ready".into(),
             receipt_file: "receipt.png".into(),
             expense_id: "e1".into(),
+            original_currency: String::new(),
+            original_amount_minor: None,
+            exchange_rate: String::new(),
+            rate_date: String::new(),
         }
     }
     fn text(bytes: &[u8]) -> String {
@@ -345,7 +370,7 @@ mod tests {
         let first_line = s.split("\r\n").next().unwrap();
         assert_eq!(
             first_line,
-            "Claim Number,Claim Title,Receipt Ref,Date,Merchant,Category,Description,Currency,Amount,Tax,Status,Receipt File,Expense ID"
+            "Claim Number,Claim Title,Receipt Ref,Date,Merchant,Category,Description,Currency,Amount,Tax,Status,Receipt File,Expense ID,Original Currency,Original Amount,Exchange Rate,Rate Date"
         );
     }
     #[test]

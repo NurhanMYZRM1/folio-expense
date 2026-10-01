@@ -250,10 +250,13 @@ impl AppService {
         source: FieldSource,
         raw_text: Option<String>,
     ) -> Result<()> {
+        let today = chrono::Local::now().date_naive();
+        // Download the exchange rate a foreign receipt needs before taking the database lock.
+        let preview = sanitize::sanitize(result.clone(), &self.settings()?.default_currency, today);
+        self.prefetch_for(preview.currency.as_deref(), preview.date.as_deref());
         let mut db = self.conn()?;
         let tx = db.transaction()?;
         let settings = Self::settings_in(&tx)?;
-        let today = chrono::Local::now().date_naive();
         let result = sanitize::sanitize(result, &settings.default_currency, today);
         normalizer::validate(&result)?;
         let job = lease(&tx, id, token, Some("extract_receipt"))?;
@@ -261,6 +264,9 @@ impl AppService {
         if matches!(e.status, ExpenseStatus::Submitted | ExpenseStatus::Archived) {
             return Err(AppError::invalid("The expense is locked by its claim."));
         }
+        // Extraction reads the receipt's own amounts; conversion is re-derived below.
+        let before = e.clone();
+        e.clear_conversion();
         macro_rules! merge {
             ($field:ident,$value:expr,$key:literal) => {
                 if !e
@@ -302,6 +308,8 @@ impl AppService {
                 );
             }
         }
+        Self::reconvert_in_tx(&tx, &mut e, &before, &settings)?;
+        Self::check_claim_currency(&tx, &e)?;
         validate_values(&ExpenseEdit {
             id: e.id.clone(),
             version: e.version,

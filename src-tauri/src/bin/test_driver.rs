@@ -47,6 +47,14 @@ fn dispatch(s: &AppService, command: &str, a: Value) -> Result<Value> {
         "create_expense" => out!(s.create_expense()),
         "edit_expense" => out!(s.edit_expense(arg!("edit"))),
         "queue_extraction" => out!(s.queue_extraction(id())),
+        "delete_expenses" => out!(s.delete_expenses(arg!("ids"))),
+        "convert_pending" => out!(s.convert_pending()),
+        "add_claim_expenses" => out!(s.add_claim_expenses(
+            a["claimId"]
+                .as_str()
+                .ok_or_else(|| AppError::invalid("Expected claimId"))?,
+            arg!("expenseIds")
+        )),
         "import_receipts" => out!(s.import_receipts(arg!("paths"))),
         "read_receipt" => out!(s.read_receipt(id())),
         "read_thumbnail" => out!(s.read_thumbnail(id())),

@@ -120,7 +120,7 @@ export function Claims() {
         <section className="panel">
           <EmptyState
             title={filter ? `No ${filter} claims` : 'Make your first claim'}
-            description="Create a claim, add reviewed expenses in the same currency, and export a complete PDF report."
+            description="Create a claim, add your imported receipts, and export a complete PDF report."
             action={
               <button className="button primary" onClick={() => setCreating(true)}>
                 <Plus size={15} />
@@ -142,6 +142,7 @@ export function ClaimDetail() {
     [description, setDescription] = useState(''),
     [busy, setBusy] = useState(false),
     [adding, setAdding] = useState(false),
+    [picked, setPicked] = useState<Set<string>>(new Set()),
     [csvBusy, setCsvBusy] = useState(false),
     [csvExport, setCsvExport] = useState<CsvExport | null>(null);
   async function load() {
@@ -174,9 +175,35 @@ export function ClaimDetail() {
   if (!detail) return error ? <div className="inline-error">{error}</div> : <Loading />;
   const { claim } = detail,
     draft = claim.status === 'draft';
-  const available = expenses.filter(
-    (e) => e.status === 'ready' && !e.claimId && e.currency === claim.currency,
+  // Every imported expense not yet in a claim. Ready and needs-review ones
+  // in the claim's currency can be added now (submitting still waits until
+  // all are reviewed); the rest are listed with what they are waiting for.
+  const unclaimed = expenses.filter(
+    (e) => !e.claimId && !['submitted', 'archived'].includes(e.status),
   );
+  const available = unclaimed.filter(
+    (e) => ['ready', 'needs_review'].includes(e.status) && e.currency === claim.currency,
+  );
+  const unavailable = unclaimed.filter((e) => !available.includes(e));
+  const pickedAvailable = available.filter((e) => picked.has(e.id));
+  function waitingFor(e: (typeof expenses)[number]) {
+    if (['draft', 'extracting'].includes(e.status)) return 'Still being read';
+    if (!e.currency) return 'No currency yet, so open it to review';
+    if (
+      settings.currencyConversionEnabled &&
+      claim.currency === settings.defaultCurrency &&
+      e.currency !== claim.currency
+    )
+      return `In ${e.currency}, waiting for an exchange rate (connect to the internet)`;
+    return `In ${e.currency}, but this claim is in ${claim.currency}`;
+  }
+  async function addExpenses(ids: string[]) {
+    await act(
+      () => api.addClaimExpenses(claim.id, ids),
+      `Added ${ids.length} expense${ids.length === 1 ? '' : 's'} to the claim.`,
+    );
+    setPicked(new Set());
+  }
   const exports = jobs.filter((j) => j.jobType === 'generate_pdf' && j.entityId === claim.id);
   const exporting = exports.some((j) => ['pending', 'running'].includes(j.status));
   async function transition(status: ClaimStatus) {
@@ -334,7 +361,7 @@ export function ClaimDetail() {
       </Panel>
       {adding && draft && (
         <Panel
-          title={`Ready expenses in ${claim.currency}`}
+          title="Add from your imported receipts"
           action={
             <button className="text-button" onClick={() => setAdding(false)}>
               Done
@@ -342,24 +369,81 @@ export function ClaimDetail() {
           }
         >
           {available.length ? (
-            <ExpenseTable
-              expenses={available}
-              compact
-              actions={(e) => (
+            <>
+              <div className="selection-bar">
+                <span>
+                  {pickedAvailable.length
+                    ? `${pickedAvailable.length} selected`
+                    : `${available.length} can be added`}
+                </span>
+                <button
+                  className="button primary small"
+                  disabled={busy || !pickedAvailable.length}
+                  onClick={() => void addExpenses(pickedAvailable.map((e) => e.id))}
+                >
+                  <Plus size={13} />
+                  Add selected
+                </button>
                 <button
                   className="button secondary small"
                   disabled={busy}
-                  onClick={() => void act(() => api.setClaimExpense(claim.id, e.id, true))}
+                  onClick={() => void addExpenses(available.map((e) => e.id))}
                 >
-                  <Plus size={13} />
-                  Add
+                  Add all {available.length}
                 </button>
-              )}
-            />
+                {pickedAvailable.some((e) => e.status === 'needs_review') && (
+                  <span className="muted">
+                    Expenses that need review can be added now; review them before submitting.
+                  </span>
+                )}
+              </div>
+              <ExpenseTable
+                expenses={available}
+                compact
+                selection={{
+                  selected: picked,
+                  onToggle: (id) =>
+                    setPicked((old) => {
+                      const next = new Set(old);
+                      if (next.has(id)) next.delete(id);
+                      else next.add(id);
+                      return next;
+                    }),
+                  onToggleAll: (checked) =>
+                    setPicked(checked ? new Set(available.map((e) => e.id)) : new Set()),
+                }}
+                actions={(e) => (
+                  <button
+                    className="button secondary small"
+                    disabled={busy}
+                    onClick={() => void addExpenses([e.id])}
+                  >
+                    <Plus size={13} />
+                    Add
+                  </button>
+                )}
+              />
+            </>
           ) : (
             <div className="quiet-empty">
-              No unclaimed, ready expenses in {claim.currency}.{' '}
-              <Link to="/expenses">Review your expenses</Link> to add them here.
+              No unclaimed receipts in {claim.currency} yet.{' '}
+              <Link to="/import">Import receipts</Link> to add them here.
+            </div>
+          )}
+          {unavailable.length > 0 && (
+            <div className="unavailable-list">
+              <h3>Not available yet</h3>
+              {unavailable.map((e) => (
+                <div className="job-row" key={e.id}>
+                  <div>
+                    <Link to={`/expenses/${e.id}`}>
+                      {e.merchantName || e.receiptFilename || 'Untitled expense'}
+                    </Link>
+                    <small>{waitingFor(e)}</small>
+                  </div>
+                  <StatusBadge status={e.status} />
+                </div>
+              ))}
             </div>
           )}
         </Panel>

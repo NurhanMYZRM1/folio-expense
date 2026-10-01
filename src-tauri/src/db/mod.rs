@@ -3,7 +3,7 @@ use rusqlite::Connection;
 use std::{path::Path, time::Duration};
 /// The newest database layout this build understands. A new migration must
 /// stamp this value; the tests check the two agree.
-pub const SCHEMA_VERSION: i32 = 1;
+pub const SCHEMA_VERSION: i32 = 2;
 pub fn open(path: &Path) -> Result<Connection> {
     let mut db = Connection::open(path)?;
     db.busy_timeout(Duration::from_secs(5))?;
@@ -31,10 +31,18 @@ fn check_version(db: &Connection) -> Result<i32> {
 }
 pub fn migrate(db: &mut Connection) -> Result<()> {
     let version = check_version(db)?;
-    if version < 1 {
-        let tx = db.transaction()?;
-        tx.execute_batch(include_str!("../../migrations/001_initial.sql"))?;
-        tx.commit()?;
+    for (target, sql) in [
+        (1, include_str!("../../migrations/001_initial.sql")),
+        (
+            2,
+            include_str!("../../migrations/002_currency_conversion.sql"),
+        ),
+    ] {
+        if version < target {
+            let tx = db.transaction()?;
+            tx.execute_batch(sql)?;
+            tx.commit()?;
+        }
     }
     Ok(())
 }

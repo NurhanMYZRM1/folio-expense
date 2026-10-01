@@ -236,3 +236,83 @@ test('multi-page PDF receipt renders and extracts entirely offline', async ({ pa
     await bridge.close();
   }
 });
+
+test('imported receipts are added to a claim in bulk and deleted with their files', async ({
+  page,
+}) => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'folio-bulk-e2e-'));
+  await page.goto('/');
+  const receipts: string[] = [];
+  for (const [name, merchant, lines] of [
+    ['cafe.png', 'KOPI HOUSE', ['Subtotal 79.72', 'Tax 4.78', 'TOTAL MYR 84.50']],
+    ['parking.png', 'CITY PARKING', ['Parking 2 hours', 'TOTAL MYR 6.00', 'CASH 6.00']],
+  ] as const) {
+    const data = await page.evaluate(
+      ([merchant, lines]) => {
+        const c = document.createElement('canvas');
+        c.width = 850;
+        c.height = 900;
+        const x = c.getContext('2d')!;
+        x.fillStyle = 'white';
+        x.fillRect(0, 0, 850, 900);
+        x.fillStyle = '#111';
+        x.font = 'bold 44px Arial';
+        x.fillText(merchant, 80, 100);
+        x.font = '30px Arial';
+        x.fillText('Date: 2026-09-27', 80, 220);
+        lines.forEach((line, i) => x.fillText(line, 80, 340 + i * 80));
+        return c.toDataURL('image/png').split(',')[1];
+      },
+      [merchant, lines] as [string, readonly string[]],
+    );
+    const file = path.join(directory, name);
+    await writeFile(file, Buffer.from(data, 'base64'));
+    receipts.push(file);
+  }
+  const bridge = new RustBridge(path.join(directory, 'app'));
+  await installBridge(page, bridge, receipts);
+  // A full navigation so the bridge's init script runs on the app page.
+  await page.goto('about:blank');
+  try {
+    await page.goto('/#/import');
+    await page.getByRole('button', { name: /Drag receipts into your workspace/ }).click();
+    await expect
+      .poll(
+        async () =>
+          (await bridge.call<Expense[]>('list_expenses'))
+            .map((e) => e.status)
+            .sort()
+            .join(','),
+        { timeout: 90_000 },
+      )
+      .toBe('ready,ready');
+    // Add both imported receipts to a new claim at once.
+    await page.getByRole('link', { name: 'Claims', exact: true }).click();
+    await page.getByRole('button', { name: 'New claim' }).click();
+    await page.getByLabel('Claim title').fill('Bulk claim');
+    await page.getByRole('button', { name: 'Create claim', exact: true }).click();
+    await page.getByRole('button', { name: 'Add expenses' }).click();
+    await page.getByRole('button', { name: 'Add all 2' }).click();
+    await expect
+      .poll(async () => (await bridge.call<Claim[]>('list_claims'))[0]?.expenseCount)
+      .toBe(2);
+    // Select one expense in the register and delete it.
+    const parking = (await bridge.call<Expense[]>('list_expenses')).find((e) =>
+      e.merchantName?.includes('PARKING'),
+    )!;
+    await page.goto('/#/expenses');
+    await page.getByRole('checkbox', { name: `Select ${parking.merchantName}` }).check();
+    await page.getByRole('button', { name: 'Delete', exact: true }).click();
+    await page.getByRole('button', { name: 'Delete', exact: true }).click();
+    await expect(page.getByText('Deleted 1 expense and their receipts.')).toBeVisible();
+    const remaining = await bridge.call<Expense[]>('list_expenses');
+    expect(remaining.map((e) => e.id)).not.toContain(parking.id);
+    expect((await bridge.call<Claim[]>('list_claims'))[0].expenseCount).toBe(1);
+    await expect(
+      readFile(path.join(directory, 'app', 'receipts', parking.receiptId!, 'original.png')),
+    ).rejects.toThrow();
+  } finally {
+    await page.goto('about:blank');
+    await bridge.close();
+  }
+});

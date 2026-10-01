@@ -115,6 +115,11 @@ export function ExpenseTable({
               </td>
               <td className="numeric amount">
                 {formatMoney(e.totalAmountMinor, e.currency ?? 'MYR')}
+                {e.originalCurrency && (
+                  <span className="original-amount">
+                    {formatMoney(e.originalTotalAmountMinor, e.originalCurrency)}
+                  </span>
+                )}
               </td>
               <td>
                 <StatusBadge status={e.status} />
