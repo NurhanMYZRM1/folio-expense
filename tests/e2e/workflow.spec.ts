@@ -369,3 +369,35 @@ test('an iPhone HEIC receipt is read, previewed and kept as the original', async
     await bridge.close();
   }
 });
+
+test('a phone photo with a hand shadow over the totals still reads the total', async ({ page }) => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'folio-shadow-e2e-'));
+  // Synthetic receipt (no real photo is committed): the lower right, where
+  // Total/Paid/Change are printed, sits in a shadow at ~1/3 brightness, the
+  // way a hand or phone shades a receipt photographed on a table.
+  const receiptPath = path.join(directory, 'IMG_7808.HEIC');
+  await copyFile(path.resolve('tests/fixtures/shadowed.heic'), receiptPath);
+  const bridge = new RustBridge(path.join(directory, 'app'));
+  await installBridge(page, bridge, [receiptPath]);
+  await page.goto('about:blank');
+  try {
+    await page.goto('/#/import');
+    await page.getByRole('button', { name: /Drag receipts into your workspace/ }).click();
+    await expect(page.getByText('Original saved. Extraction and preview queued.')).toBeVisible();
+    // Extraction is finished once the expense leaves `extracting`; before the
+    // fix it landed in needs_review with no total and a ¥/JPY guess.
+    await expect
+      .poll(async () => (await bridge.call<Expense[]>('list_expenses'))[0]?.status, {
+        timeout: 80_000,
+      })
+      .toMatch(/^(ready|needs_review)$/);
+    const [expense] = await bridge.call<Expense[]>('list_expenses');
+    expect(expense.merchantName).toBe('KEDAI RUNCIT AMAN');
+    expect(expense.occurredAt).toBe('2026-09-27');
+    expect(expense.currency).toBe('MYR');
+    expect(expense.totalAmountMinor).toBe(28300);
+  } finally {
+    await page.goto('about:blank');
+    await bridge.close();
+  }
+});
