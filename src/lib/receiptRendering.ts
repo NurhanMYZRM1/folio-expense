@@ -37,9 +37,7 @@ export async function imageCanvas(
   limit = 2400,
 ): Promise<HTMLCanvasElement> {
   const bytes = decodeBase64(content.base64);
-  const bitmap = await createImageBitmap(
-    new Blob([bytes as BlobPart], { type: content.receipt.mimeType }),
-  );
+  const bitmap = await createImageBitmap(new Blob([bytes as BlobPart], { type: content.mimeType }));
   const scale = Math.min(1, limit / Math.max(bitmap.width, bitmap.height));
   const canvas = document.createElement('canvas');
   canvas.width = Math.max(1, Math.round(bitmap.width * scale));
@@ -113,7 +111,7 @@ export async function* receiptPages(
   content: ReceiptContent,
   limit = 2200,
 ): AsyncGenerator<HTMLCanvasElement> {
-  if (content.receipt.mimeType !== 'application/pdf') {
+  if (content.mimeType !== 'application/pdf') {
     yield await imageCanvas(content, limit);
     return;
   }

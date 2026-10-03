@@ -44,6 +44,8 @@ A claim has a fixed currency; add/remove and status changes are transactional. M
 5. In one SQLite transaction insert receipt, expense, audit events, and pending jobs; commit.
 6. Workers can only lease jobs after this transaction commits.
 
+HEIC/HEIF (iPhone photos) is accepted alongside PNG, JPEG, and PDF. WebView2 and WebKitGTK cannot draw HEIC, and pdf-lib cannot embed it, so step 1 fully decodes it in Rust (pure-Rust `heif-oxide`, no system codec) and step 4 stores a JPEG `display.jpg` beside the untouched `original.heic`. `read_receipt` returns `ReceiptContent.mimeType` for the bytes it sends (the rendition for HEIC; `receipt.mimeType` still describes the original). A missing rendition is rebuilt from the original on the next read.
+
 Durable job insertion is inside the receipt transaction (execution is strictly after commit), closing the crash window between metadata commit and scheduling. A failed metadata transaction cleans its generated file. On startup, generated `.part` files and unreferenced UUID receipt directories are cleaned conservatively; original user files are never modified. Unknown directory names are untouched. Path resolution rejects traversal and symlink escapes.
 
 Leases use random tokens; stale completions cannot overwrite the current job. Heartbeats expire after two minutes. Interrupted running jobs resume at startup, up to three attempts before requiring an explicit retry. A renderer reload is recovered by lease expiry. A failure keeps the receipt and moves an extracting expense to review; manual entry always remains available. Failed exports never remove a claim.

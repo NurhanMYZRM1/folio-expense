@@ -294,7 +294,8 @@ export async function generateClaimPdf(
       const bytes = Uint8Array.from(atob(receipt.base64), (c) => c.charCodeAt(0));
       const label = `R${String(index + 1).padStart(3, '0')} · ${e.merchantName || 'Expense'}`;
       const filename = e.receiptFilename || 'Receipt';
-      if (receipt.receipt.mimeType === 'application/pdf') {
+      // `receipt.mimeType` is the format of the bytes sent (HEIC arrives as JPEG).
+      if (receipt.mimeType === 'application/pdf') {
         const original = await PDFDocument.load(bytes, { updateMetadata: false });
         if (original.getPageCount() > 30)
           throw new Error('A PDF receipt exceeds the 30 page appendix limit.');
@@ -316,10 +317,12 @@ export async function generateClaimPdf(
           });
         }
       } else {
+        if (receipt.mimeType !== 'image/png' && receipt.mimeType !== 'image/jpeg')
+          throw new Error(
+            `${filename} cannot be added to the report. Export without the appendix or re-import it as JPG or PNG.`,
+          );
         const image =
-          receipt.receipt.mimeType === 'image/png'
-            ? await doc.embedPng(bytes)
-            : await doc.embedJpg(bytes);
+          receipt.mimeType === 'image/png' ? await doc.embedPng(bytes) : await doc.embedJpg(bytes);
         newPage('RECEIPT APPENDIX');
         appendixHeading(index, e.receiptId, label, filename, '', true);
         const scale = Math.min((width - margin * 2) / image.width, (y - 60) / image.height);

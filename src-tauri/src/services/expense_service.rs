@@ -167,7 +167,9 @@ impl AppService {
         // Files go only after the database no longer refers to them. Anything
         // left behind (e.g. a file open elsewhere) is cleaned up at next start.
         for (receipt_id, original) in files {
-            for relative in [original, format!("receipts/{receipt_id}/preview.webp")] {
+            let derived = crate::storage::receipt_storage::DERIVED_FILES
+                .map(|name| format!("receipts/{receipt_id}/{name}"));
+            for relative in std::iter::once(original).chain(derived) {
                 if let Ok(path) = self.paths.resolve(&relative) {
                     let _ = fs::remove_file(&path);
                 }

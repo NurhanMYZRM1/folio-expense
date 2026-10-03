@@ -41,11 +41,23 @@ ts-rs = { version = "11", features = ["serde-json-impl", "no-serde-warnings"] }
 keyring = { version = "3", features = ["apple-native", "windows-native"] }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+# Pure-Rust HEIC/HEIF decoding (iPhone photos): no C libraries or OS codecs to ship.
+heif-oxide = "0.1"
+imagesize = "0.15"
 regex = "1"
 zeroize = "1"
 open = "5"
 [dev-dependencies]
 tempfile = "3"
+
+# HEIC decoding, resizing and JPEG encoding are ~20x slower unoptimised; keep
+# `tauri dev` and test imports of phone photos quick.
+[profile.dev.package.rust_h265]
+opt-level = 3
+[profile.dev.package.heif-oxide]
+opt-level = 3
+[profile.dev.package.image]
+opt-level = 3
 
 [[bin]]
 name = "test-driver"

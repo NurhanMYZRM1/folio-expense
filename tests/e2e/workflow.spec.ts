@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { copyFile, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { PDFDocument, PDFName, PDFArray, StandardFonts } from 'pdf-lib';
@@ -311,6 +311,59 @@ test('imported receipts are added to a claim in bulk and deleted with their file
     await expect(
       readFile(path.join(directory, 'app', 'receipts', parking.receiptId!, 'original.png')),
     ).rejects.toThrow();
+  } finally {
+    await page.goto('about:blank');
+    await bridge.close();
+  }
+});
+
+test('an iPhone HEIC receipt is read, previewed and kept as the original', async ({ page }) => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'folio-heic-e2e-'));
+  // A synthetic receipt saved as HEIC by macOS (no real photo is committed).
+  const receiptPath = path.join(directory, 'IMG_0427.HEIC');
+  await copyFile(path.resolve('tests/fixtures/lunch.heic'), receiptPath);
+  const original = await readFile(receiptPath);
+  const bridge = new RustBridge(path.join(directory, 'app'));
+  await installBridge(page, bridge, [receiptPath]);
+  await page.goto('about:blank');
+  try {
+    await page.goto('/#/import');
+    await page.getByRole('button', { name: /Drag receipts into your workspace/ }).click();
+    await expect(page.getByText('Original saved. Extraction and preview queued.')).toBeVisible();
+    // Local OCR reads the JPEG rendition, since Chromium cannot decode HEIC.
+    await expect
+      .poll(async () => (await bridge.call<Expense[]>('list_expenses'))[0]?.status, {
+        timeout: 80_000,
+      })
+      .toBe('ready');
+    const [expense] = await bridge.call<Expense[]>('list_expenses');
+    expect(expense.totalAmountMinor).toBe(2500);
+    expect(expense.taxAmountMinor).toBe(142);
+    expect(expense.receiptFilename).toBe('IMG_0427.HEIC');
+    const receiptDir = path.join(directory, 'app', 'receipts', expense.receiptId!);
+    expect(Buffer.compare(await readFile(path.join(receiptDir, 'original.heic')), original)).toBe(
+      0,
+    );
+    expect((await readFile(path.join(receiptDir, 'display.jpg'))).subarray(0, 3)).toEqual(
+      Buffer.from([0xff, 0xd8, 0xff]),
+    );
+    // The thumbnail job ran on the rendition too.
+    await expect
+      .poll(async () => {
+        try {
+          return (await readFile(path.join(receiptDir, 'preview.webp'))).subarray(8, 12).toString();
+        } catch {
+          return '';
+        }
+      })
+      .toBe('WEBP');
+    // The detail viewer draws the rendition at its real size.
+    await page.goto(`/#/expenses/${expense.id}`);
+    const preview = page.getByRole('img', { name: 'Preview of IMG_0427.HEIC' });
+    await expect(preview).toBeVisible();
+    await expect
+      .poll(() => preview.evaluate((img: HTMLImageElement) => img.naturalWidth))
+      .toBe(850);
   } finally {
     await page.goto('about:blank');
     await bridge.close();
