@@ -73,7 +73,7 @@ export function ImportReceipts() {
       const paths = await open({
         multiple: true,
         directory: false,
-        filters: [{ name: 'Receipts', extensions: ['png', 'jpg', 'jpeg', 'pdf'] }],
+        filters: [{ name: 'Receipts', extensions: ['png', 'jpg', 'jpeg', 'heic', 'heif', 'pdf'] }],
       });
       if (paths) await ingest(Array.isArray(paths) ? paths : [paths]);
     } catch (e) {
@@ -114,7 +114,7 @@ export function ImportReceipts() {
             </strong>
             <span>or click to browse files on your computer</span>
             <span className="button primary">Choose receipts</span>
-            <small>PNG, JPG, JPEG, PDF · up to 25 MB each · multiple files supported</small>
+            <small>PNG, JPG, HEIC, PDF · up to 25 MB each · multiple files supported</small>
           </button>
           <div className={`import-privacy ${settings.onlineEnabled ? 'online' : ''}`}>
             <ShieldCheck size={19} />

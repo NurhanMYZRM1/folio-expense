@@ -15,5 +15,6 @@ Folio depends on open-source packages locked by `package-lock.json` and `src-tau
 | pdf-lib, fontkit fork      | PDF creation and embedded fonts                  | MIT                                                 |
 | Noto Sans                  | Local report font                                | SIL Open Font License 1.1                           |
 | Lucide                     | Interface icons                                  | ISC                                                 |
+| heif-oxide, rust_h265      | HEIC/HEIF receipt decoding (pure Rust)           | MIT / Apache-2.0                                    |
 
 `npm run assets` copies the upstream OCR, font, and PDF notices into `public/licenses`, which ships with the app. Inspect the locked package's license before changing asset sources or adding OCR languages. The Folio icon is a simple vector created for this application, not a stock asset.
