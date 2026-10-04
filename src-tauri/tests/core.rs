@@ -269,6 +269,10 @@ fn internal_paths_reject_traversal_and_absolute_paths() {
     assert_eq!(p, format!("receipts/{id}/original.jpg"));
     assert!(AppPaths::receipt_relative("../bad", "jpg").is_err());
     assert!(AppPaths::receipt_relative(&id, "exe").is_err());
+    assert_eq!(
+        AppPaths::receipt_relative(&id, "heic").unwrap(),
+        format!("receipts/{id}/original.heic")
+    );
 }
 #[cfg(unix)]
 #[test]
@@ -880,4 +884,184 @@ fn imported_receipts_needing_review_can_be_added_to_a_claim_in_bulk() {
     .unwrap();
     s.transition_claim(&claim.id, ClaimStatus::Submitted)
         .unwrap();
+}
+
+/// A 48x80 HEIC (top half red, bottom half blue) encoded by macOS `sips`.
+const HEIC: &[u8] = include_bytes!("fixtures/receipt.heic");
+/// The same picture stored with a 90° `irot` transform (displays 80x48).
+const HEIC_ROTATED: &[u8] = include_bytes!("fixtures/rotated.heic");
+fn write_fixture(t: &TempDir, name: &str, bytes: &[u8]) -> std::path::PathBuf {
+    let path = t.path().join(name);
+    fs::write(&path, bytes).unwrap();
+    path
+}
+fn decode_content(content: &folio::domain::receipt::ReceiptContent) -> image::RgbImage {
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(&content.base64)
+        .unwrap();
+    assert!(
+        bytes.starts_with(&[0xff, 0xd8, 0xff]),
+        "rendition is a JPEG"
+    );
+    image::load_from_memory(&bytes).unwrap().to_rgb8()
+}
+fn is_red(p: &image::Rgb<u8>) -> bool {
+    p[0] > 150 && p[2] < 100
+}
+fn is_blue(p: &image::Rgb<u8>) -> bool {
+    p[2] > 150 && p[0] < 100
+}
+#[test]
+fn heic_import_keeps_the_original_and_serves_a_jpeg_rendition() {
+    let (t, s) = workspace();
+    let path = write_fixture(&t, "IMG_0001.HEIC", HEIC);
+    let id = s.import_receipt(&path).unwrap();
+    let receipt_id = s.expense(&id).unwrap().receipt_id.unwrap();
+    let content = s.read_receipt(&receipt_id).unwrap();
+    // The stored record describes the untouched original…
+    assert_eq!(content.receipt.mime_type, "image/heic");
+    assert_eq!(content.receipt.original_filename, "IMG_0001.HEIC");
+    assert_eq!(
+        content.receipt.relative_path,
+        format!("receipts/{receipt_id}/original.heic")
+    );
+    assert_eq!(content.receipt.size_bytes, HEIC.len() as i64);
+    assert_eq!(
+        fs::read(s.paths.root.join(&content.receipt.relative_path)).unwrap(),
+        HEIC
+    );
+    // …while the bytes handed to the WebView are a JPEG every engine can draw.
+    assert_eq!(content.mime_type, "image/jpeg");
+    let image = decode_content(&content);
+    assert_eq!(image.dimensions(), (48, 80));
+    assert!(
+        is_red(image.get_pixel(24, 10)),
+        "{:?}",
+        image.get_pixel(24, 10)
+    );
+    assert!(
+        is_blue(image.get_pixel(24, 70)),
+        "{:?}",
+        image.get_pixel(24, 70)
+    );
+    // Duplicates are detected on the original bytes.
+    let again = write_fixture(&t, "copy.heif", HEIC);
+    let err = s.import_receipt(&again).unwrap_err();
+    assert_eq!(err.code, "DuplicateReceipt");
+    assert_eq!(fs::read_dir(s.paths.root.join("cache")).unwrap().count(), 0);
+}
+#[test]
+fn other_receipts_report_their_own_mime_type_as_content() {
+    let (t, s) = workspace();
+    let id = import(&t, &s);
+    let receipt_id = s.expense(&id).unwrap().receipt_id.unwrap();
+    let content = s.read_receipt(&receipt_id).unwrap();
+    assert_eq!(content.mime_type, "image/png");
+    assert_eq!(content.receipt.mime_type, "image/png");
+}
+#[test]
+fn heic_rendition_applies_the_stored_rotation() {
+    let (t, s) = workspace();
+    let id = s
+        .import_receipt(&write_fixture(&t, "rotated.heic", HEIC_ROTATED))
+        .unwrap();
+    let receipt_id = s.expense(&id).unwrap().receipt_id.unwrap();
+    let image = decode_content(&s.read_receipt(&receipt_id).unwrap());
+    // Rotated 90° anticlockwise for display: red top half becomes the right side.
+    assert_eq!(image.dimensions(), (80, 48));
+    assert!(
+        is_blue(image.get_pixel(10, 24)),
+        "{:?}",
+        image.get_pixel(10, 24)
+    );
+    assert!(
+        is_red(image.get_pixel(70, 24)),
+        "{:?}",
+        image.get_pixel(70, 24)
+    );
+}
+#[test]
+fn rejects_disguised_and_undecodable_heic_files() {
+    let (t, s) = workspace();
+    // PNG bytes behind a .heic name.
+    let png = fs::read(receipt(&t)).unwrap();
+    let cases = [
+        ("png.heic", png),
+        ("text.heic", b"not a HEIC at all".to_vec()),
+        // A HEIF header whose image data is cut off.
+        ("truncated.heic", HEIC[..HEIC.len() / 2].to_vec()),
+    ];
+    for (name, bytes) in cases {
+        let err = s
+            .import_receipt(&write_fixture(&t, name, &bytes))
+            .unwrap_err();
+        assert_eq!(err.code, "FileUnsupported", "{name}: {}", err.message);
+    }
+    // HEIC bytes behind a .jpg name are refused as well.
+    let err = s
+        .import_receipt(&write_fixture(&t, "photo.jpg", HEIC))
+        .unwrap_err();
+    assert_eq!(err.code, "FileUnsupported");
+    assert!(s.expenses().unwrap().is_empty());
+    assert_eq!(fs::read_dir(s.paths.root.join("cache")).unwrap().count(), 0);
+    assert_eq!(
+        fs::read_dir(s.paths.root.join("receipts")).unwrap().count(),
+        0
+    );
+}
+#[test]
+fn rejects_heic_images_over_40_megapixels() {
+    // 8000x5100 (40.8 MP) of plain white: 20 KB on disk.
+    let (t, s) = workspace();
+    let path = write_fixture(&t, "huge.heic", include_bytes!("fixtures/huge.heic"));
+    let err = s.import_receipt(&path).unwrap_err();
+    assert_eq!(err.code, "FileTooLarge", "{}", err.message);
+    assert!(s.expenses().unwrap().is_empty());
+}
+#[test]
+fn heic_rendition_is_rebuilt_when_missing() {
+    let (t, s) = workspace();
+    let id = s
+        .import_receipt(&write_fixture(&t, "receipt.heic", HEIC))
+        .unwrap();
+    let receipt_id = s.expense(&id).unwrap().receipt_id.unwrap();
+    let rendition = s
+        .paths
+        .root
+        .join(format!("receipts/{receipt_id}/display.jpg"));
+    assert!(rendition.exists());
+    fs::remove_file(&rendition).unwrap();
+    let image = decode_content(&s.read_receipt(&receipt_id).unwrap());
+    assert_eq!(image.dimensions(), (48, 80));
+}
+#[test]
+fn deleting_a_heic_expense_removes_the_original_and_its_rendition() {
+    let (t, s) = workspace();
+    let id = s
+        .import_receipt(&write_fixture(&t, "receipt.heic", HEIC))
+        .unwrap();
+    let receipt_dir = s
+        .paths
+        .root
+        .join("receipts")
+        .join(s.expense(&id).unwrap().receipt_id.unwrap());
+    assert!(receipt_dir.join("display.jpg").exists());
+    let j = extraction_job(&s);
+    s.complete_extraction(&j.job.id, &j.token, result(), FieldSource::OnlineAi, None)
+        .unwrap();
+    assert_eq!(s.delete_expenses(vec![id]).unwrap(), 1);
+    assert!(!receipt_dir.exists());
+}
+#[test]
+fn startup_removes_orphaned_heic_receipt_folders() {
+    let t = tempfile::tempdir().unwrap();
+    let root = t.path().join("app");
+    AppService::open(root.clone(), Arc::new(MemorySecrets::default())).unwrap();
+    let orphan = root.join("receipts").join(uuid::Uuid::new_v4().to_string());
+    fs::create_dir_all(&orphan).unwrap();
+    fs::write(orphan.join("original.heic"), HEIC).unwrap();
+    fs::write(orphan.join("display.jpg"), b"jpeg").unwrap();
+    AppService::open(root, Arc::new(MemorySecrets::default())).unwrap();
+    assert!(!orphan.exists());
 }

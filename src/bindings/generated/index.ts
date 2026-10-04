@@ -19,7 +19,12 @@ exchangeRate: string | null,
 exchangeRateDate: string | null, };
 export type ExpenseEdit = { id: string, version: number, occurredAt: string | null, merchantName: string | null, totalAmountMinor: number | null, taxAmountMinor: number | null, currency: string | null, category: string, description: string, markReady: boolean, };
 export type ReceiptFile = { id: string, sha256: string, originalFilename: string, mimeType: string, relativePath: string, sizeBytes: number, createdAt: string, };
-export type ReceiptContent = { receipt: ReceiptFile, base64: string, };
+export type ReceiptContent = { receipt: ReceiptFile, 
+/**
+ * Format of `base64`. Usually the original's; HEIC originals are served
+ * as a JPEG rendition because WebViews and PDF tools cannot read HEIC.
+ */
+mimeType: string, base64: string, };
 export type ImportOutcome = { filename: string, expenseId: string | null, error: AppError | null, };
 export type AppError = { code: string, message: string, existingExpenseId: string | null, };
 export type Extraction = { merchantName: string | null, date: string | null, totalAmountMinor: number | null, taxAmountMinor: number | null, currency: string | null, suggestedCategory: string | null, confidence: { [key in string]?: number }, };

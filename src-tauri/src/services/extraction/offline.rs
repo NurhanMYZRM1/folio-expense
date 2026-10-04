@@ -84,10 +84,23 @@ const CURRENCY_SPECS: &[(&str, &str)] = &[
     (r"\$", "$"),
 ];
 
+/// Bare currency-symbol patterns (as written in `CURRENCY_SPECS`) that OCR
+/// also produces when it misreads `*`, `#` or `(` inside codes such as
+/// `F19*0CS376434`. Such a symbol only counts when it is not wedged between
+/// two letters/digits: `¥1,200`, `12.50€` and `TOTAL: £9` still match.
+const BARE_SYMBOLS: &[&str] = &["¥", "€", "£", "₹", "฿", "₩", r"\$"];
+
 fn currency_patterns() -> Result<Vec<(Regex, &'static str)>> {
     CURRENCY_SPECS
         .iter()
-        .map(|(pattern, token)| re(pattern).map(|r| (r, *token)))
+        .map(|(pattern, token)| {
+            let pattern = if BARE_SYMBOLS.contains(pattern) {
+                format!(r"(?:^|[^\p{{L}}\p{{N}}]){pattern}|{pattern}(?:$|[^\p{{L}}\p{{N}}])")
+            } else {
+                (*pattern).to_string()
+            };
+            re(&pattern).map(|r| (r, *token))
+        })
         .collect()
 }
 
@@ -711,6 +724,46 @@ THANK YOU";
         assert_eq!(conf(&out, "total"), 0.97);
         assert_eq!(conf(&out, "merchantName"), 0.92);
         assert!(would_be_ready(&out));
+    }
+
+    #[test]
+    fn symbol_misread_inside_an_invoice_number_is_not_a_currency() {
+        // Real local-OCR text of a shadowed iPhone photo of a Malaysian
+        // dot-matrix receipt: the `*` in `F19*0CS376434` came back as `¥`
+        // and `(RM)` as `(Ki)`. A symbol wedged between a digit and another
+        // character is part of a code, not a price.
+        let text = "\
+TERENGOANU,
+Tel No 309-844 2622
+Fax No i-
+TAX INVOICE
+User Id & OE        Date ¢ 27/09/2026
+Glm : THZOO!        Time ¢ 13:22:16
+Sold To: CASH
+Invoice No ¢ F19¥0C8374434         (Ki)
+Item Code       Qty U/Price      Total
+- CPE1-KOD1-883 1 16.00    16.00
+- MID-ACL-MAC-1 1 2467.00 267.00
+Total Bty 2     Total        283,00
+Paid        283.00
+Change :          0.00";
+        let out = run(text, "MYR");
+        assert_eq!(out.currency.as_deref(), Some("MYR"));
+        assert_eq!(out.total_amount_minor, Some(28300));
+        assert_eq!(out.date.as_deref(), Some("2026-09-27"));
+    }
+
+    #[test]
+    fn currency_symbol_next_to_an_amount_still_counts() {
+        for (text, currency, total) in [
+            ("RAMEN YA\n27/09/2026\nTOTAL ¥1,200", "JPY", 1200),
+            ("CAFE\n27/09/2026\nTOTAL 12.50€", "EUR", 1250),
+            ("PUB\n27/09/2026\nTOTAL £9.00", "GBP", 900),
+        ] {
+            let out = run(text, "MYR");
+            assert_eq!(out.currency.as_deref(), Some(currency), "{text}");
+            assert_eq!(out.total_amount_minor, Some(total), "{text}");
+        }
     }
 
     #[test]

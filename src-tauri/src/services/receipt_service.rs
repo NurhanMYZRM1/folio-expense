@@ -6,7 +6,7 @@ use crate::{
     },
     error::{AppError, Result},
     repository::{self, receipt_repository as receipts},
-    storage::receipt_storage,
+    storage::{heic, receipt_storage},
 };
 use base64::{engine::general_purpose::STANDARD, Engine};
 use rusqlite::params;
@@ -40,10 +40,11 @@ impl AppService {
             .collect())
     }
     pub fn import_receipt(&self, path: &Path) -> Result<String> {
-        let (receipt, temp) = receipt_storage::stage(&self.paths, path)?;
+        let staged = receipt_storage::stage(&self.paths, path)?;
+        let (receipt, temp) = (&staged.receipt, &staged.temp);
         let mut db = self.conn()?;
         if let Some(existing) = receipts::duplicate(&db, &receipt.sha256)? {
-            let _ = fs::remove_file(&temp);
+            let _ = fs::remove_file(temp);
             return Err(AppError {
                 code: "DuplicateReceipt".into(),
                 message: "This receipt appears to have already been imported.".into(),
@@ -53,9 +54,9 @@ impl AppService {
         let expense_id = id();
         let time = now();
         let result = (|| -> Result<()> {
-            receipt_storage::publish(&self.paths, &receipt, &temp)?;
+            receipt_storage::publish(&self.paths, &staged)?;
             let tx = db.transaction()?;
-            receipts::insert(&tx, &receipt)?;
+            receipts::insert(&tx, receipt)?;
             tx.execute("INSERT INTO expenses(id,receipt_id,status,created_at,updated_at) VALUES(?1,?2,'draft',?3,?3)",params![expense_id,receipt.id,time])?;
             repository::audit(
                 &tx,
@@ -76,10 +77,13 @@ impl AppService {
             Ok(())
         })();
         if let Err(e) = result {
-            let _ = fs::remove_file(&temp);
+            let _ = fs::remove_file(temp);
             if let Ok(p) = self.paths.resolve(&receipt.relative_path) {
                 let _ = fs::remove_file(&p);
                 if let Some(parent) = p.parent() {
+                    for name in receipt_storage::DERIVED_FILES {
+                        let _ = fs::remove_file(parent.join(name));
+                    }
                     let _ = fs::remove_dir(parent);
                 }
             }
@@ -87,11 +91,31 @@ impl AppService {
         }
         Ok(expense_id)
     }
+    /// Returns a receipt in a format the WebView can draw: the original, or
+    /// for HEIC the JPEG rendition (rebuilt from the original if it is missing).
     pub fn read_receipt(&self, id: &str) -> Result<ReceiptContent> {
         let receipt = receipts::get(&*self.conn()?, id)?;
-        let bytes = fs::read(self.paths.resolve(&receipt.relative_path)?)?;
+        let original = self.paths.resolve(&receipt.relative_path)?;
+        let (mime_type, bytes) = if receipt.mime_type == heic::MIME {
+            let path = self
+                .paths
+                .resolve(&format!("receipts/{id}/{}", heic::RENDITION))?;
+            let bytes = match fs::read(&path) {
+                Ok(bytes) => bytes,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    let jpeg = heic::rendition(&original)?;
+                    receipt_storage::write_rendition(&self.paths, id, &jpeg)?;
+                    jpeg
+                }
+                Err(e) => return Err(e.into()),
+            };
+            ("image/jpeg".to_string(), bytes)
+        } else {
+            (receipt.mime_type.clone(), fs::read(original)?)
+        };
         Ok(ReceiptContent {
             receipt,
+            mime_type,
             base64: STANDARD.encode(bytes),
         })
     }
@@ -130,10 +154,12 @@ impl AppService {
             )?;
             if !exists {
                 // Only generated orphan files are eligible for cleanup; never follow links or delete arbitrary directories.
-                for ext in ["png", "jpg", "pdf"] {
+                for ext in receipt_storage::ORIGINAL_EXTENSIONS {
                     let _ = fs::remove_file(entry.path().join(format!("original.{ext}")));
                 }
-                let _ = fs::remove_file(entry.path().join("preview.webp"));
+                for name in receipt_storage::DERIVED_FILES {
+                    let _ = fs::remove_file(entry.path().join(name));
+                }
                 let _ = fs::remove_dir(entry.path());
             }
         }
