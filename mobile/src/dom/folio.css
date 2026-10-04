@@ -1,0 +1,96 @@
+/* The desktop app's styles, unchanged (inlined by postcss.config.mjs). */
+@import "tailwindcss";
+@import "../../../src/styles.css";
+
+@source "../../../src";
+
+/* ── Phone layout ─────────────────────────────────────────────────────────
+   The desktop stylesheet is laid out for a 1024 px window. */
+body {
+  min-width: 0 !important;
+  background: var(--bg);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mobile-page {
+  padding: 8px 16px 48px;
+}
+
+/* The native navigation bar shows the title and the back button. */
+.mobile-page .page-heading h1,
+.mobile-page .detail-title h1,
+.mobile-page .back-link {
+  display: none;
+}
+.mobile-page .page-heading {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+}
+.mobile-page .page-actions {
+  flex-wrap: wrap;
+}
+
+.mobile-page .metrics-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+}
+
+/* Multi-column desktop layouts stack on a phone. */
+.mobile-page .analytics-grid,
+.mobile-page .expense-detail-grid,
+.mobile-page .form-grid,
+.mobile-page .import-layout,
+.mobile-page .claim-grid,
+.mobile-page .claim-summary-grid,
+.mobile-page .claim-edit-form,
+.mobile-page .settings-layout {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+.mobile-page .metrics-grid > *,
+.mobile-page .analytics-grid > *,
+.mobile-page .expense-detail-grid > *,
+.mobile-page .form-grid > *,
+.mobile-page .import-layout > *,
+.mobile-page .claim-grid > *,
+.mobile-page .claim-summary-grid > *,
+.mobile-page .settings-layout > * {
+  min-width: 0;
+}
+
+/* The desktop pins the receipt beside the form; stacked, it would cover the form. */
+.mobile-page .receipt-viewer {
+  position: static;
+}
+
+/* Inline forms (new claim) wrap: fields full width, buttons below. */
+.mobile-page .new-claim-form {
+  flex-wrap: wrap;
+  align-items: stretch;
+}
+.mobile-page .new-claim-form .field {
+  flex: 1 1 100%;
+}
+.mobile-page .new-claim-form .button {
+  flex: 1 1 0;
+}
+
+/* Tables scroll sideways inside their panel until redesigned natively. */
+.mobile-page :has(> table) {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+input[type="date"],
+input[type="month"] {
+  -webkit-appearance: none;
+  appearance: none;
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* Toasts sit above the home indicator. */
+.toasts {
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 16px) !important;
+  left: 16px !important;
+  right: 16px !important;
+}

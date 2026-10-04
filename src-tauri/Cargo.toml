@@ -21,7 +21,9 @@ required-features = ["bindings"]
 default = ["desktop"]
 test-support = []
 bindings = []
-desktop = ["dep:tauri", "dep:tauri-plugin-dialog", "dep:tauri-plugin-deep-link", "dep:tauri-plugin-single-instance", "dep:tauri-build"]
+desktop = ["dep:tauri", "dep:tauri-plugin-dialog", "dep:tauri-plugin-deep-link", "dep:tauri-plugin-single-instance", "dep:tauri-build", "dep:open"]
+# C ABI for the Expo mobile app (src/ffi.rs); build with --no-default-features.
+mobile = []
 [build-dependencies]
 tauri-build = { version = "2", features = [], optional = true }
 [dependencies]
@@ -43,7 +45,7 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 regex = "1"
 zeroize = "1"
-open = "5"
+open = { version = "5", optional = true }
 [dev-dependencies]
 tempfile = "3"
 
