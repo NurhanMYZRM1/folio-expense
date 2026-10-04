@@ -19,12 +19,13 @@ pub struct CsvExport {
     pub path: String,
     pub rows: u32,
 }
-const HEADER: [&str; 17] = [
+const HEADER: [&str; 18] = [
     "Claim Number",
     "Claim Title",
     "Receipt Ref",
     "Date",
     "Merchant",
+    "Premises",
     "Category",
     "Description",
     "Currency",
@@ -44,6 +45,7 @@ struct CsvRow {
     receipt_ref: String,
     date: String,
     merchant: String,
+    premises: String,
     category: String,
     description: String,
     currency: String,
@@ -132,6 +134,7 @@ fn render(rows: &[CsvRow]) -> Vec<u8> {
             text_cell(&r.receipt_ref),
             text_cell(&r.date),
             text_cell(&r.merchant),
+            text_cell(&r.premises),
             text_cell(&r.category),
             text_cell(&r.description),
             text_cell(&r.currency),
@@ -172,6 +175,7 @@ impl AppService {
                     .unwrap_or_default(),
                 date: e.occurred_at.clone().unwrap_or_default(),
                 merchant: e.merchant_name.clone().unwrap_or_default(),
+                premises: e.premises.clone().unwrap_or_default(),
                 category: e.category.clone(),
                 description: e.description.clone(),
                 currency: e.currency.clone().unwrap_or_else(|| claim.currency.clone()),
@@ -223,6 +227,7 @@ impl AppService {
                 receipt_ref: String::new(),
                 date: e.occurred_at.clone().unwrap_or_default(),
                 merchant: e.merchant_name.clone().unwrap_or_default(),
+                premises: e.premises.clone().unwrap_or_default(),
                 category: e.category.clone(),
                 description: e.description.clone(),
                 currency: e.currency.clone().unwrap_or_default(),
@@ -337,6 +342,7 @@ mod tests {
             receipt_ref: receipt_ref.into(),
             date: "2026-09-27".into(),
             merchant: merchant.into(),
+            premises: "Jalan Ampang 50450 Kuala Lumpur".into(),
             category: "Meals".into(),
             description: String::new(),
             currency: currency.into(),
@@ -370,7 +376,7 @@ mod tests {
         let first_line = s.split("\r\n").next().unwrap();
         assert_eq!(
             first_line,
-            "Claim Number,Claim Title,Receipt Ref,Date,Merchant,Category,Description,Currency,Amount,Tax,Status,Receipt File,Expense ID,Original Currency,Original Amount,Exchange Rate,Rate Date"
+            "Claim Number,Claim Title,Receipt Ref,Date,Merchant,Premises,Category,Description,Currency,Amount,Tax,Status,Receipt File,Expense ID,Original Currency,Original Amount,Exchange Rate,Rate Date"
         );
     }
     #[test]
@@ -409,7 +415,8 @@ mod tests {
         let s = text(&out[3..]);
         let last = s.split("\r\n").nth(1).unwrap();
         let cells: Vec<&str> = last.split(',').collect();
-        assert_eq!(cells[8], "");
+        assert_eq!(cells[5], "Jalan Ampang 50450 Kuala Lumpur");
         assert_eq!(cells[9], "");
+        assert_eq!(cells[10], "");
     }
 }

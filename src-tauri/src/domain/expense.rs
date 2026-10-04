@@ -59,6 +59,8 @@ pub struct Expense {
     pub receipt_id: Option<String>,
     pub occurred_at: Option<String>,
     pub merchant_name: Option<String>,
+    /// Where the purchase was made: the address printed on the receipt.
+    pub premises: Option<String>,
     #[ts(type = "number | null")]
     pub total_amount_minor: Option<i64>,
     #[ts(type = "number | null")]
@@ -95,6 +97,8 @@ pub struct ExpenseEdit {
     pub version: i32,
     pub occurred_at: Option<String>,
     pub merchant_name: Option<String>,
+    #[serde(default)]
+    pub premises: Option<String>,
     #[ts(type = "number | null")]
     pub total_amount_minor: Option<i64>,
     #[ts(type = "number | null")]
@@ -152,6 +156,9 @@ pub fn parse_money(input: &str, exponent: u32) -> Result<i64> {
 pub fn validate_values(edit: &ExpenseEdit) -> Result<()> {
     if edit.merchant_name.as_ref().is_some_and(|v| v.len() > 300) || edit.description.len() > 4000 {
         return Err(AppError::invalid("Merchant or notes are too long."));
+    }
+    if edit.premises.as_ref().is_some_and(|v| v.len() > 500) {
+        return Err(AppError::invalid("The premises address is too long."));
     }
     if !CATEGORIES.contains(&edit.category.as_str()) {
         return Err(AppError::invalid("Select a valid category."));

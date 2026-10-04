@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  binarizeForOcr,
   enhanceForOcr,
   lightingUnevenness,
   ocrScale,
@@ -149,5 +150,18 @@ describe('ocrScale', () => {
     expect(ocrScale(850, 1050)).toBeCloseTo(1600 / 1050);
     expect(ocrScale(1700, 2200)).toBe(1);
     expect(ocrScale(0, 0)).toBe(1);
+  });
+});
+describe('binarizeForOcr', () => {
+  it('turns faded gray paper white and keeps the ink black', () => {
+    // Faded thermal paper: gray (150) paper inside a white margin, ink at 35%.
+    const r = receipt((x, y) => (x < 40 || x > 560 || y < 40 || y > 760 ? 250 : 150));
+    binarizeForOcr(r.data, r.width, r.height);
+    expect(r.at(100, 30 + 40 * 3)).toBe(255); // paper between text bars
+    expect(r.isInk(100, 135)).toBe(true);
+    expect(r.at(100, 135)).toBe(0);
+    expect(r.at(20, 20)).toBe(255); // white margin
+    for (let i = 0; i < r.data.length; i += 4)
+      if (r.data[i] !== 0 && r.data[i] !== 255) throw new Error(`gray pixel at ${i / 4}`);
   });
 });

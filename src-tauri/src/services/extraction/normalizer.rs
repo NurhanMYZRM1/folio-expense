@@ -12,7 +12,9 @@ pub fn validate(result: &Extraction) -> Result<()> {
             "Extraction returned invalid values. The receipt is safe and can be entered manually.",
         )
     };
-    if result.confidence.len() != 6
+    // `premises` is optional: older extractions and providers may omit it.
+    let expected = 6 + usize::from(result.confidence.contains_key("premises"));
+    if result.confidence.len() != expected
         || [
             "merchantName",
             "date",
@@ -42,6 +44,7 @@ pub fn validate(result: &Extraction) -> Result<()> {
         version: 1,
         occurred_at: result.date.clone(),
         merchant_name: result.merchant_name.clone(),
+        premises: result.premises.clone(),
         total_amount_minor: result.total_amount_minor,
         tax_amount_minor: result.tax_amount_minor,
         currency: result.currency.clone(),

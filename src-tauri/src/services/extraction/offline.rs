@@ -1,4 +1,4 @@
-use super::{sanitize, ExtractionInput, ReceiptExtractor};
+use super::{premises, sanitize, ExtractionInput, ReceiptExtractor};
 use crate::{
     domain::{
         expense::{currency_exponent, parse_money},
@@ -402,6 +402,22 @@ const TIME_PATTERN: &str = r"\b\d{1,2}:\d{2}\b";
 /// of these is the business name.
 const SUFFIX_PATTERN: &str = r"(?i)SDN\.?\s*BHD\.?|\bBHD\b|\bBERHAD\b|\bPLT\b|\bENTERPRISE\b|\bTRADING\b|\bRESTAURANT\b|\bRESTORAN\b|\bCAF[EÉ]\b|PTE\.?\s*LTD\.?|\bLTD\b|\bLIMITED\b|\bLLC\b|\bINC\b|\bCORP(ORATION)?\b|\bHOTEL\b|\bBAKERY\b|\bMART\b|\bSUPERMARKET\b|\bPHARMACY\b|\bFARMASI\b|\bKEDAI\b";
 
+/// A company registration number in brackets at the end of a name line:
+/// `KAMAL ENTERPRISE (SA0123456-T)`, `ABC SDN BHD (Co. No. 123456-X)`.
+const TRAILING_REGISTRATION_PATTERN: &str =
+    r"(?i)\s*\((?:CO\.?\s*(?:REG\.?\s*)?NO\.?:?\s*)?[A-Z]{0,3}\d[\dA-Z-]*\)\s*$";
+
+/// A top line as a possible business name: without the registration number
+/// and without the specks OCR picks up from the paper edge (`|`, `[`, `_`…).
+fn clean_name_line(line: &str, registration_re: &Regex) -> String {
+    let edge = |c: char| !(c.is_alphanumeric() || "().&'".contains(c));
+    let line = line.trim_matches(edge);
+    registration_re
+        .replace(line, "")
+        .trim_matches(edge)
+        .to_string()
+}
+
 /// A name line OCR read cleanly: letters, digits and the punctuation names
 /// use, mostly letters.
 fn is_clean_name(line: &str) -> bool {
@@ -586,14 +602,17 @@ impl LocalOcrExtractor {
         let address_re = re(ADDRESS_PATTERN)?;
         let boilerplate_re = re(BOILERPLATE_PATTERN)?;
         let suffix_re = re(SUFFIX_PATTERN)?;
-        let candidates: Vec<(usize, &str)> = lines
+        let registration_re = re(TRAILING_REGISTRATION_PATTERN)?;
+        let candidates: Vec<(usize, String)> = lines
             .iter()
             .take(8)
-            .copied()
+            .map(|line| clean_name_line(line, &registration_re))
             .enumerate()
             .filter(|(_, line)| {
                 let alpha = line.chars().filter(|c| c.is_alphabetic()).count();
                 alpha >= 3
+                    // `VISA ****1234`, `TOTAL 12.00`: amount lines, not a name.
+                    && labels.classify(line) == LineKind::Other
                     && !date_re.is_match(line)
                     && !time_re.is_match(line)
                     && !phone_re.is_match(line)
@@ -620,6 +639,7 @@ impl LocalOcrExtractor {
 
         let (category, category_confidence) =
             suggest_category(merchant.as_deref(), input.raw_text)?;
+        let premises = premises::detect(&lines, merchant.as_deref(), &currency, clear_page);
 
         // A blurry or unreadable scan keeps every field in review.
         let cap = match input.ocr_confidence {
@@ -637,6 +657,9 @@ impl LocalOcrExtractor {
         ] {
             confidence.insert(field.into(), f64::min(value, cap));
         }
+        if let Some((_, value)) = &premises {
+            confidence.insert("premises".into(), f64::min(*value, cap));
+        }
         Ok(Extraction {
             merchant_name: merchant,
             date: date.map(|(d, _, _)| d),
@@ -644,6 +667,7 @@ impl LocalOcrExtractor {
             tax_amount_minor: tax,
             currency: Some(currency),
             suggested_category: Some(category.into()),
+            premises: premises.map(|(address, _)| address),
             confidence,
         })
     }
@@ -1014,6 +1038,54 @@ CASH $15.00";
         assert_eq!(out.currency.as_deref(), Some("MYR"));
         assert_eq!(conf(&out, "currency"), 0.25);
         assert!(!would_be_ready(&out));
+    }
+
+    #[test]
+    fn paper_edge_specks_do_not_spoil_a_clean_name() {
+        // Real local-OCR text of a tilted phone photo: the receipt's left
+        // edge came back as `|` in front of the name.
+        let text = "\
+- a ———— TT
+Kk]
+|      RESTORAN NASI KANDAR PELITA SDN BHD
+4           (Co. No. 123456-x)
+No. 149, Jalan Ampang
+50450 Kuala Lumpur, Malaysia
+Date: 27/09/2026  Time: 13:42
+SUBTOTAL                      24.00
+SST 6%                                   1.44
+ROUNDING                       0.01
+TOTAL RM                              25.45";
+        let out = run(text, "MYR");
+        assert_eq!(
+            out.merchant_name.as_deref(),
+            Some("RESTORAN NASI KANDAR PELITA SDN BHD")
+        );
+        assert_eq!(conf(&out, "merchantName"), 0.92);
+        assert!(would_be_ready(&out));
+    }
+
+    #[test]
+    fn card_line_is_never_the_merchant_and_registration_is_dropped() {
+        // Real uniform-block OCR text of a petrol station receipt photo.
+        let text = "\
+PETRONAS JALAN DUTA
+KAMAL ENTERPRISE (SA0123456-T)
+Lot 1234, Jalan Duta
+50480 Kuala Lumpur
+03-10-2026 08:12
+RON95 32.15L @ 2.05                  65.90
+TOTAL                                65.90
+VISA *kkkikkikrkkx]234                 65.90
+THANK YOU";
+        let out = run(text, "MYR");
+        assert_eq!(out.merchant_name.as_deref(), Some("KAMAL ENTERPRISE"));
+        assert_eq!(out.total_amount_minor, Some(6590));
+        assert_eq!(out.suggested_category.as_deref(), Some("Fuel"));
+        assert!(would_be_ready(&out));
+        // Without the card line's amount, the card line is still not a name.
+        let out = run("03-10-2026\nVISA ****1234\nTOTAL 65.90", "MYR");
+        assert_ne!(out.merchant_name.as_deref(), Some("VISA ****1234"));
     }
 
     #[test]

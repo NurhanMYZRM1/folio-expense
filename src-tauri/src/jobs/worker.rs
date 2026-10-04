@@ -288,6 +288,7 @@ impl AppService {
             };
         }
         merge!(merchant_name, result.merchant_name.clone(), "merchantName");
+        merge!(premises, result.premises.clone(), "premises");
         merge!(occurred_at, result.date.clone(), "date");
         merge!(total_amount_minor, result.total_amount_minor, "total");
         merge!(tax_amount_minor, result.tax_amount_minor, "tax");
@@ -315,6 +316,7 @@ impl AppService {
             version: e.version,
             occurred_at: e.occurred_at.clone(),
             merchant_name: e.merchant_name.clone(),
+            premises: e.premises.clone(),
             total_amount_minor: e.total_amount_minor,
             tax_amount_minor: e.tax_amount_minor,
             currency: e.currency.clone(),
