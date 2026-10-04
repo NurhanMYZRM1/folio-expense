@@ -80,7 +80,15 @@ async function pick(options: string): Promise<string> {
     return "null";
   }
   const source = await chooseSource();
-  const paths = source ? await pickReceipts(source) : [];
+  if (!source) return "null";
+  const { paths, failed } = await pickReceipts(source);
+  // The shared import screen only takes paths, so name the skipped photos here.
+  if (failed.length) {
+    Alert.alert(
+      failed.length === 1 ? "1 photo was skipped" : `${failed.length} photos were skipped`,
+      failed.map((f) => `${f.filename}: ${f.error?.message}`).join("\n\n"),
+    );
+  }
   return JSON.stringify(paths.length ? paths : null);
 }
 

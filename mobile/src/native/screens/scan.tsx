@@ -3,8 +3,8 @@
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import { SymbolView, type SFSymbol } from "expo-symbols";
-import { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, useColorScheme, View } from "react-native";
+import { useRef, useState } from "react";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, useColorScheme, View } from "react-native";
 import Animated from "react-native-reanimated";
 import type { Expense, ImportOutcome } from "@folio/bindings/generated";
 import { importSequentially } from "@folio/lib/importQueue";
@@ -45,23 +45,32 @@ function Action({ icon, title, subtitle, primary, onPress, p, disabled }: { icon
 export default function ScanScreen() {
   const p = palette[useColorScheme() === "dark" ? "dark" : "light"];
   const expenses = useFolio<Expense[]>("list_expenses");
-  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
-  const busy = progress !== null;
+  // "preparing": photos are being copied or converted; a count: saving to Folio.
+  const [stage, setStage] = useState<"preparing" | { done: number; total: number } | null>(null);
+  const [busy, setBusy] = useState(false);
+  // Interlock against a second tap before React re-renders the disabled buttons.
+  const running = useRef(false);
   const [problems, setProblems] = useState<ImportOutcome[]>([]);
 
   const importFrom = async (source: ReceiptSource) => {
+    if (running.current) return;
+    running.current = true;
+    setBusy(true);
     try {
-      const paths = await pickReceipts(source);
-      if (!paths.length) return;
+      const picked = await pickReceipts(source, () => setStage("preparing"));
+      if (!picked.paths.length && !picked.failed.length) return;
       setProblems([]);
       // One receipt per call, so the bar shows real progress (shared with the desktop).
-      const outcomes = await importSequentially(
-        paths,
-        (batch) => call<ImportOutcome[]>("import_receipts", { paths: batch }),
-        (done, total) => setProgress({ done, total }),
-      );
+      const outcomes = picked.paths.length
+        ? await importSequentially(
+            picked.paths,
+            (batch) => call<ImportOutcome[]>("import_receipts", { paths: batch }),
+            (done, total) => setStage({ done, total }),
+          )
+        : [];
       const saved = outcomes.filter((o) => o.expenseId).length;
-      setProblems(outcomes.filter((o) => o.error));
+      // Photos that couldn't be prepared are listed with the ones the core refused.
+      setProblems([...picked.failed, ...outcomes.filter((o) => o.error)]);
       if (saved) {
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         notify(`${saved} ${saved === 1 ? "receipt saved" : "receipts saved"} on this device. Reading has started.`);
@@ -69,7 +78,9 @@ export default function ScanScreen() {
     } catch (e) {
       notify(errorText(e), true);
     } finally {
-      setProgress(null);
+      running.current = false;
+      setBusy(false);
+      setStage(null);
     }
   };
 
@@ -90,12 +101,21 @@ export default function ScanScreen() {
           <Action icon="doc" title="Files" subtitle="PDF, JPEG, PNG or HEIC" onPress={() => void importFrom("files")} p={p} disabled={busy} />
         </View>
       </View>
-      {progress && (
+      {stage && (
         <Animated.View entering={panelEntering} exiting={quickExit} style={s.busy} accessibilityLiveRegion="polite">
-          <Text style={[s.busyText, { color: p.muted }]}>
-            Saving receipt {Math.min(progress.done + 1, progress.total)} of {progress.total}…
-          </Text>
-          <ProgressBar value={progress.total ? progress.done / progress.total : 0} color={p.accent} track={p.border} />
+          {stage === "preparing" ? (
+            <View style={s.preparing}>
+              <ActivityIndicator color={p.accent} />
+              <Text style={[s.busyText, { color: p.muted }]}>Preparing photos…</Text>
+            </View>
+          ) : (
+            <>
+              <Text style={[s.busyText, { color: p.muted }]}>
+                Saving receipt {Math.min(stage.done + 1, stage.total)} of {stage.total}…
+              </Text>
+              <ProgressBar value={stage.total ? stage.done / stage.total : 0} color={p.accent} track={p.border} />
+            </>
+          )}
         </Animated.View>
       )}
       {problems.map((o, i) => (
@@ -147,6 +167,7 @@ const s = StyleSheet.create({
   actionSub: { fontSize: 13, marginTop: 2 },
   pair: { flexDirection: "row", gap: 12 },
   busy: { gap: 8, paddingVertical: 8 },
+  preparing: { flexDirection: "row", alignItems: "center", gap: 10 },
   busyText: { fontSize: 13, fontVariant: ["tabular-nums"] },
   problem: { padding: 14, borderRadius: 12, gap: 4 },
   problemTitle: { fontWeight: "600" },
