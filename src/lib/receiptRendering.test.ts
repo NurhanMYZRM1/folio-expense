@@ -37,7 +37,9 @@ describe('prepareForOcr', () => {
     const reference = Uint8ClampedArray.from(even.data);
     enhanceForOcr(reference);
     expect(prepareForOcr(even.data, even.width, even.height)).toBe('standard');
-    expect(even.data).toEqual(reference);
+    // Index of the first differing byte (-1 = identical). toEqual on ~2M
+    // bytes takes several seconds and trips the test timeout.
+    expect(even.data.findIndex((v, i) => v !== reference[i])).toBe(-1);
   });
   it('flattens a shadow so shaded paper is as white as lit paper', () => {
     const r = receipt(shadowed);
