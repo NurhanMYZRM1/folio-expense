@@ -17,6 +17,13 @@ import { CATEGORIES, STATUS_LABELS } from '../../lib/constants';
 import { api } from '../../lib/ipc';
 import { errorMessage } from '../../lib/errors';
 import type { CsvExport } from '../../bindings/generated';
+import { AnimatePresence, motion } from 'motion/react';
+import { Modal, insertMotion, spring } from '../../components/motion';
+function TabUnderline() {
+  return (
+    <motion.i className="tab-underline" layoutId="expense-tab" transition={spring.indicator} />
+  );
+}
 export function Expenses() {
   const { expenses, notify, refresh } = useWorkspace();
   const navigate = useNavigate(),
@@ -144,6 +151,7 @@ export function Expenses() {
       <div className="expense-tabs">
         <button className={!status ? 'active' : ''} onClick={() => change(setStatus, '')}>
           All expenses <span>{expenses.length}</span>
+          {!status && <TabUnderline />}
         </button>
         {['needs_review', 'ready', 'submitted'].map((s) => (
           <button
@@ -152,6 +160,7 @@ export function Expenses() {
             onClick={() => change(setStatus, s)}
           >
             {STATUS_LABELS[s]} <span>{expenses.filter((e) => e.status === s).length}</span>
+            {status === s && <TabUnderline />}
           </button>
         ))}
       </div>
@@ -230,59 +239,45 @@ export function Expenses() {
           )}
           <span className="result-count">{filtered.length} expenses</span>
         </div>
-        {selected.size > 0 && (
-          <div className="selection-bar">
-            <span>{selected.size} selected</span>
-            <button
-              className="button primary small"
-              disabled={csvBusy}
-              onClick={() => void exportSelected()}
-            >
-              <FileSpreadsheet size={14} />
-              {csvBusy ? 'Exporting…' : 'Export CSV'}
-            </button>
-            {lastCsv && (
-              <span className="inline-export-note">
-                Saved {lastCsv.fileName} ·{' '}
-                <button
-                  className="text-button"
-                  onClick={() =>
-                    void api.openCsvExport(lastCsv.id).catch((e) => notify(errorMessage(e), true))
-                  }
-                >
-                  Open CSV
-                </button>
-              </span>
-            )}
-            {confirmDelete ? (
-              <>
-                <span>Delete {selected.size} permanently, with their receipt files?</span>
-                <button
-                  className="button secondary small danger-text"
-                  disabled={deleting}
-                  onClick={() => void deleteSelected()}
-                >
-                  <Trash2 size={14} />
-                  {deleting ? 'Deleting…' : 'Delete'}
-                </button>
-                <button className="text-button" onClick={() => setConfirmDelete(false)}>
-                  Cancel
-                </button>
-              </>
-            ) : (
+        <AnimatePresence initial={false}>
+          {selected.size > 0 && (
+            <motion.div className="selection-bar" key="selection" {...insertMotion}>
+              <span>{selected.size} selected</span>
+              <button
+                className="button primary small"
+                disabled={csvBusy}
+                onClick={() => void exportSelected()}
+              >
+                <FileSpreadsheet size={14} />
+                {csvBusy ? 'Exporting…' : 'Export CSV'}
+              </button>
+              {lastCsv && (
+                <span className="inline-export-note">
+                  Saved {lastCsv.fileName} ·{' '}
+                  <button
+                    className="text-button"
+                    onClick={() =>
+                      void api.openCsvExport(lastCsv.id).catch((e) => notify(errorMessage(e), true))
+                    }
+                  >
+                    Open CSV
+                  </button>
+                </span>
+              )}
               <button
                 className="button secondary small danger-text"
+                disabled={deleting}
                 onClick={() => setConfirmDelete(true)}
               >
                 <Trash2 size={14} />
                 Delete
               </button>
-            )}
-            <button className="text-button" onClick={clearSelection}>
-              Clear selection
-            </button>
-          </div>
-        )}
+              <button className="text-button" onClick={clearSelection}>
+                Clear selection
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
         {filtered.length ? (
           <ExpenseTable
             expenses={visible}
@@ -327,6 +322,42 @@ export function Expenses() {
           </div>
         </div>
       </section>
+      <Modal
+        open={confirmDelete}
+        onClose={() => !deleting && setConfirmDelete(false)}
+        labelledBy="delete-expenses-title"
+        describedBy="delete-expenses-body"
+        role="alertdialog"
+      >
+        <div className="modal-icon">
+          <Trash2 size={22} />
+        </div>
+        <h2 id="delete-expenses-title">
+          Delete {selected.size} {selected.size === 1 ? 'expense' : 'expenses'}?
+        </h2>
+        <p id="delete-expenses-body">
+          The {selected.size === 1 ? 'expense and its' : 'expenses and their'} stored receipt files
+          will be removed from this device permanently. This cannot be undone.
+        </p>
+        <div className="modal-actions">
+          <button
+            className="button secondary"
+            data-autofocus
+            disabled={deleting}
+            onClick={() => setConfirmDelete(false)}
+          >
+            Cancel
+          </button>
+          <button
+            className="button danger"
+            disabled={deleting}
+            onClick={() => void deleteSelected()}
+          >
+            <Trash2 size={15} />
+            {deleting ? 'Deleting…' : 'Delete'}
+          </button>
+        </div>
+      </Modal>
     </>
   );
 }

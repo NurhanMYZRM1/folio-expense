@@ -10,8 +10,10 @@ import {
 import type { Claim, Expense, Job, Settings } from '../bindings/generated';
 import { api, desktop } from '../lib/ipc';
 import { errorMessage } from '../lib/errors';
-import { X, CheckCircle2, AlertCircle } from 'lucide-react';
+import { X, AlertCircle } from 'lucide-react';
 import { startJobRunner } from '../lib/jobs';
+import { AnimatePresence, motion, useIsPresent } from 'motion/react';
+import { SuccessCheck, spring } from '../components/motion';
 export const defaultSettings: Settings = {
   theme: 'system',
   defaultCurrency: 'MYR',
@@ -111,19 +113,16 @@ export function Providers({ children }: { children: ReactNode }) {
     >
       {children}
       <div className="toasts" aria-live="polite">
-        {notices.map((n) => (
-          <div className={`toast ${n.error ? 'error' : ''}`} key={n.id}>
-            {n.error ? <AlertCircle size={18} /> : <CheckCircle2 size={18} />}
-            <span>{n.text}</span>
-            <button
-              className="icon-button"
-              aria-label="Dismiss notification"
-              onClick={() => setNotices((v) => v.filter((x) => x.id !== n.id))}
-            >
-              <X size={16} />
-            </button>
-          </div>
-        ))}
+        <AnimatePresence initial={false} mode="popLayout">
+          {notices.map((n) => (
+            <Toast
+              key={n.id}
+              error={n.error}
+              text={n.text}
+              onDismiss={() => setNotices((v) => v.filter((x) => x.id !== n.id))}
+            />
+          ))}
+        </AnimatePresence>
       </div>
     </Context.Provider>
   );
@@ -132,4 +131,47 @@ export function useWorkspace(): Store {
   const context = useContext(Context);
   if (!context) throw new Error('Workspace provider missing');
   return context;
+}
+
+/**
+ * A toast leaves the accessibility tree and stops taking pointer input the
+ * moment it is dismissed, so its exit animation can never be clicked again or
+ * announced twice.
+ */
+function Toast({
+  error,
+  text,
+  onDismiss,
+}: {
+  error?: boolean;
+  text: string;
+  onDismiss: () => void;
+}) {
+  const present = useIsPresent();
+  return (
+    <motion.div
+      layout={present ? 'position' : false}
+      className={`toast ${error ? 'error' : ''}`}
+      aria-hidden={present ? undefined : true}
+      inert={!present}
+      style={{ pointerEvents: present ? undefined : 'none' }}
+      initial={{ opacity: 0, y: 24, scale: 0.92 }}
+      animate={{ opacity: 1, y: 0, scale: 1, transition: spring.bouncy }}
+      exit={{
+        opacity: 0,
+        x: 40,
+        scale: 0.96,
+        transition: { duration: 0.18, ease: [0.4, 0, 1, 1] },
+      }}
+      transition={spring.smooth}
+    >
+      <span className="toast-icon">
+        {error ? <AlertCircle size={18} /> : <SuccessCheck size={20} />}
+      </span>
+      <span>{text}</span>
+      <button className="icon-button" aria-label="Dismiss notification" onClick={onDismiss}>
+        <X size={16} />
+      </button>
+    </motion.div>
+  );
 }
