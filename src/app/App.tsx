@@ -31,7 +31,12 @@ import { ExpenseDetail } from '../features/expenses/ExpenseDetail';
 import { ImportReceipts } from '../features/receipts/ImportReceipts';
 import { Claims, ClaimDetail } from '../features/claims/Claims';
 import { Settings } from '../features/settings/Settings';
-import { Loading } from '../components/ui';
+import { PageSkeleton } from '../components/ui';
+import { PageTransition, spring } from '../components/motion';
+import { AnimatePresence, LayoutGroup, MotionConfig, motion } from 'motion/react';
+function NavPill({ id }: { id: string }) {
+  return <motion.span layoutId={id} className="nav-pill" transition={spring.indicator} />;
+}
 const navigation = [
   { to: '/', label: 'Overview', icon: LayoutDashboard },
   { to: '/expenses', label: 'Expenses', icon: Rows3 },
@@ -115,9 +120,14 @@ function Shell() {
         <nav>
           {navigation.map((n) => (
             <NavLink key={n.to} to={n.to} end={n.to === '/'}>
-              <n.icon size={18} strokeWidth={1.7} />
-              <span>{n.label}</span>
-              {n.to === '/expenses' && pending > 0 && <b className="nav-count">{pending}</b>}
+              {({ isActive }) => (
+                <>
+                  {isActive && <NavPill id="sidebar-pill" />}
+                  <n.icon size={18} strokeWidth={1.7} />
+                  <span>{n.label}</span>
+                  {n.to === '/expenses' && pending > 0 && <b className="nav-count">{pending}</b>}
+                </>
+              )}
             </NavLink>
           ))}
         </nav>
@@ -135,8 +145,13 @@ function Shell() {
             </Link>
           </div>
           <NavLink to="/settings" className="settings-nav">
-            <Settings2 size={18} />
-            Settings
+            {({ isActive }) => (
+              <>
+                {isActive && <NavPill id="sidebar-pill" />}
+                <Settings2 size={18} />
+                Settings
+              </>
+            )}
           </NavLink>
           <div className="profile">
             <span className="profile-avatar">{settings.employee ? settings.employee[0] : 'Y'}</span>
@@ -173,7 +188,18 @@ function Shell() {
               onClick={() => void toggleTheme()}
               aria-label="Toggle color theme"
             >
-              {settings.theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+              <AnimatePresence mode="popLayout" initial={false}>
+                <motion.span
+                  key={settings.theme === 'dark' ? 'sun' : 'moon'}
+                  style={{ display: 'grid' }}
+                  initial={{ rotate: -90, scale: 0.5, opacity: 0 }}
+                  animate={{ rotate: 0, scale: 1, opacity: 1 }}
+                  exit={{ rotate: 90, scale: 0.5, opacity: 0 }}
+                  transition={spring.bouncy}
+                >
+                  {settings.theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+                </motion.span>
+              </AnimatePresence>
             </button>
             <span className="top-avatar">{settings.employee ? settings.employee[0] : 'Y'}</span>
           </div>
@@ -194,18 +220,26 @@ function Shell() {
             </div>
           )}
           {loading ? (
-            <Loading />
+            <PageSkeleton />
           ) : (
-            <Routes>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/expenses" element={<Expenses />} />
-              <Route path="/expenses/:id" element={<ExpenseDetail />} />
-              <Route path="/import" element={<ImportReceipts />} />
-              <Route path="/claims" element={<Claims />} />
-              <Route path="/claims/:id" element={<ClaimDetail />} />
-              <Route path="/settings" element={<Settings />} />
-              <Route path="*" element={<Dashboard />} />
-            </Routes>
+            <AnimatePresence
+              mode="wait"
+              initial={false}
+              onExitComplete={() => window.scrollTo(0, 0)}
+            >
+              <PageTransition key={location.pathname}>
+                <Routes location={location}>
+                  <Route path="/" element={<Dashboard />} />
+                  <Route path="/expenses" element={<Expenses />} />
+                  <Route path="/expenses/:id" element={<ExpenseDetail />} />
+                  <Route path="/import" element={<ImportReceipts />} />
+                  <Route path="/claims" element={<Claims />} />
+                  <Route path="/claims/:id" element={<ClaimDetail />} />
+                  <Route path="/settings" element={<Settings />} />
+                  <Route path="*" element={<Dashboard />} />
+                </Routes>
+              </PageTransition>
+            </AnimatePresence>
           )}
         </main>
         <footer className="workspace-footer">
@@ -216,15 +250,32 @@ function Shell() {
           <span>Folio · Local-first expense management</span>
         </footer>
       </div>
+      <nav className="mobile-nav" aria-label="Primary">
+        {[...navigation, { to: '/settings', label: 'Settings', icon: Settings2 }].map((n) => (
+          <NavLink key={n.to} to={n.to} end={n.to === '/'} aria-label={n.label}>
+            {({ isActive }) => (
+              <>
+                {isActive && <NavPill id="mobile-pill" />}
+                <n.icon size={20} strokeWidth={1.8} />
+                <span aria-hidden="true">{n.label === 'Import receipts' ? 'Import' : n.label}</span>
+              </>
+            )}
+          </NavLink>
+        ))}
+      </nav>
     </div>
   );
 }
 export default function App() {
   return (
-    <Providers>
-      <HashRouter>
-        <Shell />
-      </HashRouter>
-    </Providers>
+    <MotionConfig reducedMotion="user">
+      <Providers>
+        <HashRouter>
+          <LayoutGroup>
+            <Shell />
+          </LayoutGroup>
+        </HashRouter>
+      </Providers>
+    </MotionConfig>
   );
 }

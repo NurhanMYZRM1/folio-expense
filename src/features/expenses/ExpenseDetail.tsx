@@ -17,6 +17,7 @@ import { CATEGORIES } from '../../lib/constants';
 import { CURRENCIES, formatMoney, moneyInput, parseMoney } from '../../lib/money';
 import { Confidence, Loading, StatusBadge } from '../../components/ui';
 import { ReceiptViewer } from '../../components/ReceiptViewer';
+import { Modal } from '../../components/motion';
 function Editor({ initial, reload }: { initial: Expense; reload: () => Promise<void> }) {
   const { notify, refresh, expenses, settings } = useWorkspace();
   const navigate = useNavigate();
@@ -298,37 +299,46 @@ function Editor({ initial, reload }: { initial: Expense; reload: () => Promise<v
           )}
           {!locked && (
             <div className="delete-row">
-              {confirmDelete ? (
-                <>
-                  <span>
-                    Delete this expense{initial.receiptId ? ' and its stored receipt file' : ''}
-                    {initial.claimId ? ', and remove it from its claim' : ''}? This cannot be
-                    undone.
-                  </span>
-                  <button
-                    className="button secondary small danger-text"
-                    disabled={busy}
-                    onClick={() => void remove()}
-                  >
-                    <Trash2 size={13} />
-                    Delete permanently
-                  </button>
-                  <button className="text-button" onClick={() => setConfirmDelete(false)}>
-                    Cancel
-                  </button>
-                </>
-              ) : (
-                <button
-                  className="text-button danger-text"
-                  disabled={busy || initial.status === 'extracting'}
-                  onClick={() => setConfirmDelete(true)}
-                >
-                  <Trash2 size={13} />
-                  Delete expense
-                </button>
-              )}
+              <button
+                className="text-button danger-text"
+                disabled={busy || initial.status === 'extracting'}
+                onClick={() => setConfirmDelete(true)}
+              >
+                <Trash2 size={13} />
+                Delete expense
+              </button>
             </div>
           )}
+          <Modal
+            open={confirmDelete}
+            onClose={() => !busy && setConfirmDelete(false)}
+            labelledBy="delete-expense-title"
+            describedBy="delete-expense-body"
+            role="alertdialog"
+          >
+            <div className="modal-icon">
+              <Trash2 size={22} />
+            </div>
+            <h2 id="delete-expense-title">Delete this expense?</h2>
+            <p id="delete-expense-body">
+              Delete this expense{initial.receiptId ? ' and its stored receipt file' : ''}
+              {initial.claimId ? ', and remove it from its claim' : ''}? This cannot be undone.
+            </p>
+            <div className="modal-actions">
+              <button
+                className="button secondary"
+                data-autofocus
+                disabled={busy}
+                onClick={() => setConfirmDelete(false)}
+              >
+                Cancel
+              </button>
+              <button className="button danger" disabled={busy} onClick={() => void remove()}>
+                <Trash2 size={15} />
+                {busy ? 'Deleting…' : 'Delete permanently'}
+              </button>
+            </div>
+          </Modal>
         </section>
       </div>
     </>
