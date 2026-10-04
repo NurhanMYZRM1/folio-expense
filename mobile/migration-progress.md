@@ -29,6 +29,20 @@
 | `/claims/:id` | `claims/[id]` | DOM shell (phone layout) |
 | `/settings` | `(tabs)/settings` | DOM shell (phone layout) |
 
+## Shared features ported
+
+- **HEIC receipts** (desktop `feat/heic-receipts`): the Rust core decodes HEIC
+  itself (pure Rust, so it builds for iOS unchanged). Photos are now picked at
+  full quality in their current representation, so iPhone photos are stored as
+  the untouched HEIC original instead of a re-compressed JPEG; Files accepts
+  `.heic/.heif`; rare formats (ProRAW, WebP…) are converted to JPEG first.
+  OCR and thumbnails read the JPEG rendition (`receipts/<id>/display.jpg`).
+- **Motion polish** (desktop `feat/motion-polish`): DOM screens get it from the
+  shared code (`motion` + `@types/react-dom` added here). Native screens use
+  `src/native/motion.tsx` — the same spring presets on Reanimated: staggered
+  list entrances, per-file import progress bar, toasts that spring in and
+  leave quickly, press scale, soft shadows, and the desktop's AA colour tokens.
+
 ## nativize-later
 
 - [ ] Expense detail (edit form → native form; viewer → native zoomable image)

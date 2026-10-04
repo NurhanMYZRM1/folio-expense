@@ -29,10 +29,17 @@ async function reportFont(): Promise<Uint8Array> {
 
 const receiptPath = (r: ReceiptFile) => `${dataRoot()}/${r.relativePath}`;
 
+/**
+ * The image to read for a receipt. HEIC originals use the upright JPEG
+ * rendition the Rust core saves beside them (heic::RENDITION), exactly as the
+ * desktop does; `read_receipt` rebuilds it first if it is missing.
+ */
+const imagePath = (r: ReceiptFile) => (r.mimeType === "image/heic" ? `${dataRoot()}/receipts/${r.id}/display.jpg` : receiptPath(r));
+
 /** Page images for OCR / online extraction: PDF pages via PDFKit, images as stored. */
 async function pageImages(r: ReceiptFile): Promise<string[]> {
   if (r.mimeType === "application/pdf") return FolioCore.renderPdfPages(receiptPath(r), MAX_PAGES, 2200);
-  return [receiptPath(r)];
+  return [imagePath(r)];
 }
 
 async function resizedJpeg(path: string, maxSide: number, base64: true): Promise<string>;
@@ -47,7 +54,7 @@ async function resizedJpeg(path: string, maxSide: number, base64: boolean): Prom
 }
 
 async function thumbnail(r: ReceiptFile): Promise<string> {
-  const first = r.mimeType === "application/pdf" ? (await FolioCore.renderPdfPages(receiptPath(r), 1, 600))[0] : receiptPath(r);
+  const first = r.mimeType === "application/pdf" ? (await FolioCore.renderPdfPages(receiptPath(r), 1, 600))[0] : imagePath(r);
   if (!first) throw new Error("Unable to render the receipt.");
   return resizedJpeg(first, 560, true);
 }

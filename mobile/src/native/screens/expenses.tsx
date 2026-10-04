@@ -6,14 +6,19 @@ import * as Haptics from "expo-haptics";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import { SymbolView } from "expo-symbols";
 import { useMemo, useState } from "react";
-import { FlatList, RefreshControl, StyleSheet, Text, useColorScheme, View } from "react-native";
+import { RefreshControl, StyleSheet, Text, useColorScheme, View } from "react-native";
+import Animated from "react-native-reanimated";
 import type { Expense } from "@folio/bindings/generated";
 import { formatMoney, sumMinor } from "@folio/lib/money";
 import { call, errorText } from "~/core/folio";
 import { ExpenseRow } from "../expense-row";
+import { listEntering, panelEntering, quickExit, settle } from "../motion";
 import { notify } from "../status";
 import { palette } from "../theme";
 import { useFolio } from "../use-folio";
+
+/** Rows past the first screenful appear without an entrance, so scrolling stays calm. */
+const ANIMATED_ROWS = 12;
 
 const SEGMENTS = [
   { key: "", label: "All" },
@@ -82,12 +87,18 @@ export default function ExpensesScreen() {
           ),
         }}
       />
-      <FlatList
+      <Animated.FlatList
         style={{ flex: 1, backgroundColor: p.bg }}
         contentInsetAdjustmentBehavior="automatic"
         data={visible}
         keyExtractor={(e) => e.id}
-        renderItem={({ item }) => <ExpenseRow expense={item} />}
+        // Switching a status or searching: rows that stay glide to their new places.
+        itemLayoutAnimation={settle}
+        renderItem={({ item, index }) => (
+          <Animated.View entering={index < ANIMATED_ROWS ? listEntering(index) : undefined} exiting={quickExit}>
+            <ExpenseRow expense={item} />
+          </Animated.View>
+        )}
         ItemSeparatorComponent={() => <View style={[s.separator, { backgroundColor: p.border }]} />}
         refreshControl={
           <RefreshControl
@@ -121,10 +132,10 @@ export default function ExpensesScreen() {
         }
         ListEmptyComponent={
           expenses.data ? (
-            <View style={s.empty}>
+            <Animated.View entering={panelEntering} style={s.empty}>
               <SymbolView name="doc.text.magnifyingglass" size={34} tintColor={p.muted} />
               <Text style={[s.emptyText, { color: p.muted }]}>{query || status ? "No expenses match." : "Scan a receipt to start your expense register."}</Text>
-            </View>
+            </Animated.View>
           ) : null
         }
         contentContainerStyle={{ paddingBottom: 120 }}

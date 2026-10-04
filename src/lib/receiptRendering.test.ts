@@ -31,7 +31,9 @@ function receipt(paper: (x: number, y: number) => number) {
 }
 // The lower-right quadrant sits in a hand shadow: paper there is 1/3 as bright.
 const shadowed = (x: number, y: number) => (x > 300 && y > 400 ? 78 : 235);
-describe('prepareForOcr', () => {
+// Each case filters a full receipt-sized image; on a slow CI runner the first
+// one (which also warms up the JIT) can take several seconds.
+describe('prepareForOcr', { timeout: 30_000 }, () => {
   it('keeps the contrast stretch for evenly lit scans, PDFs and screenshots', () => {
     const even = receipt(() => 235);
     const reference = Uint8ClampedArray.from(even.data);

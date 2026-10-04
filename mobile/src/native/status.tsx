@@ -1,7 +1,9 @@
 // Background job progress and notices (the desktop's top bar and toasts).
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, useColorScheme, View } from "react-native";
+import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { dropEntering, panelEntering, quickExit, settle } from "./motion";
 import { palette } from "./theme";
 
 type Notice = { id: number; text: string; error: boolean };
@@ -42,16 +44,24 @@ export function StatusOverlay() {
   return (
     <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
       {visible && (
-        <View style={[s.pill, { top: insets.top + 4, backgroundColor: p.surface, borderColor: p.border }]} accessibilityLiveRegion="polite">
+        <Animated.View
+          entering={dropEntering}
+          exiting={quickExit}
+          style={[s.pill, { top: insets.top + 4, backgroundColor: p.surface, boxShadow: p.shadow }]}
+          accessibilityLiveRegion="polite"
+        >
           <ActivityIndicator size="small" color={p.accent} />
           <Text style={[s.pillText, { color: p.text }]}>{visible}</Text>
-        </View>
+        </Animated.View>
       )}
       <View pointerEvents="box-none" style={[s.toasts, { bottom: insets.bottom + 96 }]}>
+        {/* Toasts spring in and leave quickly; the others slide to fill the gap. */}
         {list.map((n) => (
-          <Pressable key={n.id} onPress={() => dismiss(n.id)} style={[s.toast, { backgroundColor: n.error ? p.danger : p.text }]} accessibilityRole="alert">
-            <Text style={[s.toastText, { color: n.error ? "#fff" : p.bg }]}>{n.text}</Text>
-          </Pressable>
+          <Animated.View key={n.id} entering={panelEntering} exiting={quickExit} layout={settle}>
+            <Pressable onPress={() => dismiss(n.id)} style={[s.toast, { backgroundColor: n.error ? p.danger : p.text }]} accessibilityRole="alert">
+              <Text style={[s.toastText, { color: n.error ? "#fff" : p.bg }]}>{n.text}</Text>
+            </Pressable>
+          </Animated.View>
         ))}
       </View>
     </View>
@@ -59,7 +69,7 @@ export function StatusOverlay() {
 }
 
 const s = StyleSheet.create({
-  pill: { position: "absolute", alignSelf: "center", flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, boxShadow: "0 4px 14px rgba(0,0,0,0.12)" },
+  pill: { position: "absolute", alignSelf: "center", flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999 },
   pillText: { fontSize: 13, fontWeight: "500" },
   toasts: { position: "absolute", left: 16, right: 16, gap: 8 },
   toast: { paddingHorizontal: 16, paddingVertical: 12, borderRadius: 14, borderCurve: "continuous" },
