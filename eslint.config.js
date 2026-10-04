@@ -16,6 +16,8 @@ export default tseslint.config(
       'src/bindings/generated',
       'test-results',
       'playwright-report',
+      // The Expo app has its own toolchain (cd mobile && npm run typecheck).
+      'mobile',
     ],
   },
   js.configs.recommended,

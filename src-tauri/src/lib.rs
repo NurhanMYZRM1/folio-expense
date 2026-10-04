@@ -1,8 +1,11 @@
 #[cfg(feature = "desktop")]
 mod commands;
 pub mod db;
+pub mod dispatch;
 pub mod domain;
 pub mod error;
+#[cfg(feature = "mobile")]
+pub mod ffi;
 pub mod jobs;
 pub mod repository;
 pub mod security;

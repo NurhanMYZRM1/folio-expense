@@ -1,0 +1,16 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "paths": {
+      "~/*": ["./src/*"],
+      "@folio/*": ["../src/*"],
+      "@tauri-apps/api/core": ["./src/dom/shims/tauri-core.ts"],
+      "@tauri-apps/api/webviewWindow": ["./src/dom/shims/tauri-webview-window.ts"],
+      "@tauri-apps/plugin-dialog": ["./src/dom/shims/tauri-dialog.ts"],
+      "@tauri-apps/plugin-deep-link": ["./src/dom/shims/tauri-deep-link.ts"],
+      "*": ["./node_modules/@types/*", "./node_modules/*"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "modules/**/*.ts", ".expo/types/**/*.ts", "expo-env.d.ts"]
+}
