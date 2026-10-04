@@ -159,6 +159,7 @@ const fixture = (): ExportSnapshot => ({
       originalTaxAmountMinor: null,
       exchangeRate: null,
       exchangeRateDate: null,
+      premises: null,
     },
   ],
   receipts: [

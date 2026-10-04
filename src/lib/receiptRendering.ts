@@ -236,6 +236,42 @@ export function prepareForOcr(
   }
   return 'flattened';
 }
+/** Flattened brightness below this fraction of the paper counts as ink. */
+export const INK_THRESHOLD = 0.72;
+/**
+ * Turns receipt pixels pure black and white in place, for an OCR retry when
+ * the gray image read badly. Faded thermal paper is gray rather than white,
+ * and Tesseract can mistake a large gray area for a picture and skip it
+ * entirely. A light blur first keeps paper grain from turning into specks.
+ */
+export function binarizeForOcr(data: Uint8ClampedArray, width: number, height: number): void {
+  const pixelCount = width * height;
+  const gray = new Float32Array(pixelCount);
+  for (let i = 0; i < pixelCount; i++) {
+    const o = i * 4;
+    gray[i] = 0.299 * data[o] + 0.587 * data[o + 1] + 0.114 * data[o + 2];
+  }
+  const smooth = windowPass(gray, width, height, 1, 'mean');
+  const flat = flatten(smooth, width, height, estimatePaper(smooth, width, height));
+  for (let i = 0; i < pixelCount; i++) {
+    const o = i * 4;
+    data[o] = data[o + 1] = data[o + 2] = flat[i] < 255 * INK_THRESHOLD ? 0 : 255;
+    data[o + 3] = 255;
+  }
+}
+/** Returns a black-and-white copy of an OCR-prepared canvas. */
+export function binarizedCanvas(source: HTMLCanvasElement): HTMLCanvasElement {
+  const canvas = document.createElement('canvas');
+  canvas.width = source.width;
+  canvas.height = source.height;
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+  if (!context) throw new Error('Unable to preprocess this receipt image.');
+  context.drawImage(source, 0, 0);
+  const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+  binarizeForOcr(imageData.data, canvas.width, canvas.height);
+  context.putImageData(imageData, 0, 0);
+  return canvas;
+}
 /** Returns a new canvas prepared for OCR; `source` is left untouched. */
 export function preprocessCanvas(source: HTMLCanvasElement): HTMLCanvasElement {
   const scale = ocrScale(source.width, source.height);

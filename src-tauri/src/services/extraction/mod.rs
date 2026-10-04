@@ -1,6 +1,7 @@
 pub mod normalizer;
 pub mod offline;
 pub mod online;
+pub mod premises;
 pub mod sanitize;
 use crate::{domain::extraction::Extraction, error::Result};
 pub struct ExtractionInput<'a> {

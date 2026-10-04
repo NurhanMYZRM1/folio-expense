@@ -27,6 +27,7 @@ function Editor({ initial, reload }: { initial: Expense; reload: () => Promise<v
   const receiptCurrency = initial.originalCurrency ?? initial.currency ?? settings.defaultCurrency;
   const [form, setForm] = useState({
     merchant: initial.merchantName ?? '',
+    premises: initial.premises ?? '',
     date: initial.occurredAt ?? '',
     total: moneyInput(
       initial.originalCurrency ? initial.originalTotalAmountMinor : initial.totalAmountMinor,
@@ -70,6 +71,7 @@ function Editor({ initial, reload }: { initial: Expense; reload: () => Promise<v
         id: initial.id,
         version: initial.version,
         merchantName: form.merchant.trim() || null,
+        premises: form.premises.trim() || null,
         occurredAt: form.date || null,
         totalAmountMinor: parseMoney(form.total, form.currency),
         taxAmountMinor: parseMoney(form.tax, form.currency),
@@ -176,6 +178,17 @@ function Editor({ initial, reload }: { initial: Expense; reload: () => Promise<v
                   maxLength={300}
                   onChange={(e) => update('merchant', e.target.value)}
                   placeholder="Merchant or supplier name"
+                />
+              </label>
+              <label className="field">
+                <span>
+                  Premises <Confidence meta={meta('premises')} />
+                </span>
+                <input
+                  value={form.premises}
+                  maxLength={300}
+                  onChange={(e) => update('premises', e.target.value)}
+                  placeholder="Shop or outlet address, read from the receipt"
                 />
               </label>
               <div className="form-grid">

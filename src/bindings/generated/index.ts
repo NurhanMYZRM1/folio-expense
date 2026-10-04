@@ -2,7 +2,11 @@
 export type ExpenseStatus = "draft" | "extracting" | "needs_review" | "ready" | "submitted" | "archived";
 export type FieldSource = "online_ai" | "local_ocr" | "manual";
 export type FieldMeta = { confidence: number, source: FieldSource, };
-export type Expense = { id: string, receiptId: string | null, occurredAt: string | null, merchantName: string | null, totalAmountMinor: number | null, taxAmountMinor: number | null, currency: string | null, category: string, description: string, status: ExpenseStatus, fieldMeta: { [key in string]?: FieldMeta }, extractionConfidence: number | null, createdAt: string, updatedAt: string, version: number, syncState: string, receiptFilename: string | null, claimId: string | null, 
+export type Expense = { id: string, receiptId: string | null, occurredAt: string | null, merchantName: string | null, 
+/**
+ * Where the purchase was made: the address printed on the receipt.
+ */
+premises: string | null, totalAmountMinor: number | null, taxAmountMinor: number | null, currency: string | null, category: string, description: string, status: ExpenseStatus, fieldMeta: { [key in string]?: FieldMeta }, extractionConfidence: number | null, createdAt: string, updatedAt: string, version: number, syncState: string, receiptFilename: string | null, claimId: string | null, 
 /**
  * Set when a foreign-currency receipt was converted: the currency and
  * amounts printed on the receipt. `currency`/`total`/`tax` then hold the
@@ -17,7 +21,7 @@ exchangeRate: string | null,
  * The business day the exchange rate is for.
  */
 exchangeRateDate: string | null, };
-export type ExpenseEdit = { id: string, version: number, occurredAt: string | null, merchantName: string | null, totalAmountMinor: number | null, taxAmountMinor: number | null, currency: string | null, category: string, description: string, markReady: boolean, };
+export type ExpenseEdit = { id: string, version: number, occurredAt: string | null, merchantName: string | null, premises: string | null, totalAmountMinor: number | null, taxAmountMinor: number | null, currency: string | null, category: string, description: string, markReady: boolean, };
 export type ReceiptFile = { id: string, sha256: string, originalFilename: string, mimeType: string, relativePath: string, sizeBytes: number, createdAt: string, };
 export type ReceiptContent = { receipt: ReceiptFile, 
 /**
@@ -27,7 +31,11 @@ export type ReceiptContent = { receipt: ReceiptFile,
 mimeType: string, base64: string, };
 export type ImportOutcome = { filename: string, expenseId: string | null, error: AppError | null, };
 export type AppError = { code: string, message: string, existingExpenseId: string | null, };
-export type Extraction = { merchantName: string | null, date: string | null, totalAmountMinor: number | null, taxAmountMinor: number | null, currency: string | null, suggestedCategory: string | null, confidence: { [key in string]?: number }, };
+export type Extraction = { merchantName: string | null, date: string | null, totalAmountMinor: number | null, taxAmountMinor: number | null, currency: string | null, suggestedCategory: string | null, 
+/**
+ * Where the purchase was made: the address printed on the receipt.
+ */
+premises: string | null, confidence: { [key in string]?: number }, };
 export type Job = { id: string, jobType: string, entityId: string, status: string, attempts: number, lastError: string | null, createdAt: string, updatedAt: string, };
 export type JobLease = { job: Job, token: string, receiptId: string | null, };
 export type ClaimStatus = "draft" | "submitted" | "archived";

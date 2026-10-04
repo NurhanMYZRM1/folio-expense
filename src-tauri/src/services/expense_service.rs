@@ -75,6 +75,7 @@ impl AppService {
             };
         }
         update!(merchant_name, "merchantName");
+        update!(premises, "premises");
         update!(occurred_at, "date");
         update!(total_amount_minor, "total");
         update!(tax_amount_minor, "tax");

@@ -2,6 +2,7 @@ import { createWorker, OEM, PSM, type Worker as OcrWorker } from 'tesseract.js';
 import { api } from './ipc';
 import { encodeBase64 } from './encoding';
 import { errorMessage } from './errors';
+import { bestPass, isGoodPass, type OcrPass } from './ocrPasses';
 import type { ExportSnapshot, JobLease, ReceiptContent } from '../bindings/generated';
 type Callbacks = {
   refresh: () => Promise<void>;
@@ -83,7 +84,8 @@ export function startJobRunner(callbacks: Callbacks): () => void {
       } else {
         if (!receiptId) throw new Error('The receipt for this job is missing.');
         const receipt = await api.receipt(receiptId);
-        const { receiptPages, thumbnail, preprocessCanvas } = await import('./receiptRendering');
+        const { receiptPages, thumbnail, preprocessCanvas, binarizedCanvas } =
+          await import('./receiptRendering');
         if (job.jobType === 'generate_thumbnail') {
           await api.completeThumbnail(id, token, await thumbnail(receipt));
         } else {
@@ -116,13 +118,8 @@ export function startJobRunner(callbacks: Callbacks): () => void {
                     progress(`Local OCR · ${Math.round(status.progress * 100)}%`);
                 },
               });
-              // Receipts are one column of lines with labels on the left and
-              // amounts on the right. Single-column mode keeps "TOTAL ... 84.50"
-              // on one line instead of splitting labels and amounts into blocks.
-              await ocr.setParameters({
-                tessedit_pageseg_mode: PSM.SINGLE_COLUMN,
-                preserve_interword_spaces: '1',
-              });
+              // The page layout mode is set per pass below.
+              await ocr.setParameters({ preserve_interword_spaces: '1' });
             }
             let rawText = '',
               page = 0,
@@ -130,11 +127,12 @@ export function startJobRunner(callbacks: Callbacks): () => void {
               // text each page holds (a blank back page shouldn't count).
               weightedConfidence = 0,
               textLength = 0;
-            for await (const canvas of receiptPages(receipt)) {
-              progress(`Local OCR · page ${++page}`);
+            const worker = ocr;
+            const read = async (image: HTMLCanvasElement, mode: PSM): Promise<OcrPass> => {
+              await worker.setParameters({ tessedit_pageseg_mode: mode });
               let timer: ReturnType<typeof setTimeout> | undefined;
               const result = await Promise.race([
-                ocr.recognize(preprocessCanvas(canvas)),
+                worker.recognize(image),
                 new Promise<never>((_, reject) => {
                   timer = setTimeout(
                     () =>
@@ -147,11 +145,27 @@ export function startJobRunner(callbacks: Callbacks): () => void {
                   );
                 }),
               ]).finally(() => clearTimeout(timer));
-              rawText += `${result.data.text}\n`;
-              const length = result.data.text.trim().length;
-              weightedConfidence += result.data.confidence * length;
+              return { text: result.data.text, confidence: result.data.confidence };
+            };
+            for await (const canvas of receiptPages(receipt)) {
+              progress(`Local OCR · page ${++page}`);
+              const prepared = preprocessCanvas(canvas);
+              // See ocrPasses.ts: retry only when the first reading looks incomplete.
+              const passes = [await read(prepared, PSM.SINGLE_COLUMN)];
+              if (!isGoodPass(passes[0])) {
+                progress(`Local OCR · page ${page} · second look`);
+                passes.push(await read(prepared, PSM.SINGLE_BLOCK));
+              }
+              if (!passes.some(isGoodPass)) {
+                progress(`Local OCR · page ${page} · black-and-white`);
+                passes.push(await read(binarizedCanvas(prepared), PSM.SINGLE_BLOCK));
+              }
+              const result = bestPass(passes);
+              rawText += `${result.text}\n`;
+              const length = result.text.trim().length;
+              weightedConfidence += result.confidence * length;
               textLength += length;
-              canvas.width = canvas.height = 0;
+              canvas.width = canvas.height = prepared.width = prepared.height = 0;
             }
             await api.completeOcr(
               id,

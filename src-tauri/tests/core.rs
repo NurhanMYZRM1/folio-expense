@@ -127,6 +127,7 @@ fn edit(s: &AppService, id: &str) -> ExpenseEdit {
         version: e.version,
         occurred_at: Some("2026-09-27".into()),
         merchant_name: Some("Client lunch".into()),
+        premises: e.premises.clone(),
         total_amount_minor: Some(8450),
         tax_amount_minor: Some(478),
         currency: Some("MYR".into()),
@@ -179,9 +180,10 @@ fn future_database(root: &std::path::Path) -> std::path::PathBuf {
     fs::create_dir_all(&dir).unwrap();
     let path = dir.join("expenses.sqlite");
     let db = rusqlite::Connection::open(&path).unwrap();
-    db.execute_batch(
-        "CREATE TABLE future(x TEXT); INSERT INTO future VALUES('keep me'); PRAGMA user_version=3;",
-    )
+    db.execute_batch(&format!(
+        "CREATE TABLE future(x TEXT); INSERT INTO future VALUES('keep me'); PRAGMA user_version={};",
+        folio::db::SCHEMA_VERSION + 1
+    ))
     .unwrap();
     path
 }
@@ -196,7 +198,8 @@ fn startup_refuses_newer_database_without_modifying_it() {
         .err()
         .expect("a newer database must be refused");
     assert_eq!(error.code, "DatabaseVersion");
-    assert!(error.message.contains("version 3"), "{}", error.message);
+    let future = format!("version {}", folio::db::SCHEMA_VERSION + 1);
+    assert!(error.message.contains(&future), "{}", error.message);
 
     // Refusing must not write anything: same bytes, no journal files.
     assert_eq!(fs::read(&path).unwrap(), before);
@@ -330,6 +333,33 @@ fn offline_cross_checked_receipt_is_ready_without_review() {
     assert_eq!(e.currency.as_deref(), Some("MYR"));
     assert_eq!(e.category, "Meals");
     assert_eq!(e.status, ExpenseStatus::Ready);
+}
+#[test]
+fn premises_are_read_from_the_address_and_manual_corrections_stick() {
+    let (t, s) = workspace();
+    let id = import(&t, &s);
+    let ocr = "MR. D.I.Y. (M) SDN BHD\nLot G-23, Sunway Pyramid\n3, Jalan PJS 11/15, Bandar Sunway\n47500 Petaling Jaya, Selangor\n28-09-2026 19:05\nTOTAL (INCL SST) 54.30\nTNG EWALLET 54.30\n";
+    let j = extraction_job(&s);
+    s.complete_ocr(&j.job.id, &j.token, ocr.into(), Some(90.0))
+        .unwrap();
+    let e = s.expense(&id).unwrap();
+    assert_eq!(
+        e.premises.as_deref(),
+        Some("Lot G-23, Sunway Pyramid, 3, Jalan PJS 11/15, Bandar Sunway, 47500 Petaling Jaya, Selangor, Malaysia")
+    );
+    assert_eq!(e.field_meta["premises"].confidence, 0.95);
+    assert_eq!(e.status, ExpenseStatus::Ready);
+    // The user shortens it; a later re-scan must not overwrite the correction.
+    let mut change = edit(&s, &id);
+    change.premises = Some("Sunway Pyramid, Petaling Jaya".into());
+    s.edit_expense(change).unwrap();
+    s.queue_extraction(&id).unwrap();
+    let j = extraction_job(&s);
+    s.complete_ocr(&j.job.id, &j.token, ocr.into(), Some(90.0))
+        .unwrap();
+    let e = s.expense(&id).unwrap();
+    assert_eq!(e.premises.as_deref(), Some("Sunway Pyramid, Petaling Jaya"));
+    assert_eq!(e.field_meta["premises"].source, FieldSource::Manual);
 }
 #[test]
 fn offline_unreadable_or_unconfirmed_receipts_still_need_review() {
@@ -580,11 +610,12 @@ fn csv_export_claim_orders_receipt_refs_like_pdf_and_sums_amounts() {
         "manual expense has a blank Receipt Ref"
     );
     assert_eq!(manual_cells[4], "Manual Entry");
-    assert_eq!(manual_cells[8], "20.00");
+    assert_eq!(manual_cells[5], "", "no premises was entered");
+    assert_eq!(manual_cells[9], "20.00");
     let receipted_cells: Vec<&str> = lines[2].split(',').collect();
     assert_eq!(receipted_cells[2], "R002");
     assert_eq!(receipted_cells[4], "Receipted Cafe");
-    assert_eq!(receipted_cells[8], "10.00");
+    assert_eq!(receipted_cells[9], "10.00");
 }
 #[test]
 fn csv_export_formats_by_currency_exponent_dedupes_and_rejects_unknown_ids() {
@@ -737,6 +768,7 @@ fn editing_the_receipt_amount_reconverts_and_other_edits_keep_the_conversion() {
         version: e.version,
         occurred_at: e.occurred_at.clone(),
         merchant_name: e.merchant_name.clone(),
+        premises: e.premises.clone(),
         total_amount_minor: e.original_total_amount_minor,
         tax_amount_minor: e.original_tax_amount_minor,
         currency: e.original_currency.clone(),
@@ -874,6 +906,7 @@ fn imported_receipts_needing_review_can_be_added_to_a_claim_in_bulk() {
         version: e.version,
         occurred_at: e.occurred_at,
         merchant_name: e.merchant_name,
+        premises: e.premises,
         total_amount_minor: e.total_amount_minor,
         tax_amount_minor: e.tax_amount_minor,
         currency: e.currency,
