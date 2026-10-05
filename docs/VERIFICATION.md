@@ -89,4 +89,4 @@ Run on an Apple Silicon Mac and a Windows 11 machine before public distribution:
 - On Windows, test a clean installation with WebView2 absent using the bundled offline installer, native drag/drop, Credential Manager, and uninstall/reinstall data retention.
 - Apply owner-provided macOS signing/notarization and Windows code signing. Test downloaded signed installers on clean machines. Current artifacts are unsigned evaluation builds.
 
-The GitHub Actions matrix is configuration for these platforms, not evidence of an executed Windows run. No cloud synchronization or online account is needed to execute the core offline checklist.
+The GitHub Actions matrix is configuration for these platforms, not evidence of an executed Windows run. Every pull request and push to `main` runs the full check suite on Linux (`.github/workflows/ci.yml`). The macOS and Windows matrix (`.github/workflows/desktop.yml`) builds the installers and runs only when started by hand from the Actions tab, because GitHub bills macOS minutes at 10x and Windows at 2x. No cloud synchronization or online account is needed to execute the core offline checklist.
