@@ -178,7 +178,21 @@ pub fn normalize_date(
     }
     if let Some((p1, p2, y)) = capture_numeric_dmy(trimmed) {
         let (y, m, d, ambiguous) = resolve_numeric(p1, p2, y, currency)?;
-        return finalize(y, m, d, ambiguous, today);
+        if !ambiguous || m == d {
+            // `05/05/2026` reads the same either way, so it is not ambiguous.
+            return finalize(y, m, d, false, today);
+        }
+        // Both parts could be the month. When only one reading is a real,
+        // non-future date (e.g. `10/11/2026` read day-first would be in the
+        // future), that reading is the answer and nothing is left to verify.
+        return match (
+            finalize(y, m, d, true, today),
+            finalize(y, d, m, true, today),
+        ) {
+            (Some(preferred), Some(_)) => Some(preferred),
+            (Some((date, _)), None) | (None, Some((date, _))) => Some((date, false)),
+            (None, None) => None,
+        };
     }
     if let Some((y, m, d)) = capture_day_month_year(trimmed) {
         return finalize(y, m, d, false, today);
@@ -199,6 +213,19 @@ fn clean_merchant(raw: &str) -> Option<String> {
     } else {
         Some(capped)
     }
+}
+
+/// One line of address text: whitespace collapsed, control characters
+/// dropped, at most 300 characters, and at least two letters.
+fn clean_premises(raw: &str) -> Option<String> {
+    let collapsed = raw
+        .split(|c: char| c.is_whitespace() || c.is_control())
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let stripped = collapsed.trim_matches(|c: char| c == ',' || c == ';' || c.is_whitespace());
+    let capped: String = stripped.chars().take(300).collect();
+    (capped.chars().filter(|c| c.is_alphabetic()).count() >= 2).then_some(capped)
 }
 
 fn zero(map: &mut BTreeMap<String, f64>, key: &str) {
@@ -266,6 +293,8 @@ pub fn sanitize(result: Extraction, default_currency: &str, today: NaiveDate) ->
         }
     }
 
+    r.premises = r.premises.as_deref().and_then(clean_premises);
+
     if r.suggested_category
         .as_ref()
         .is_some_and(|c| !CATEGORIES.contains(&c.as_str()))
@@ -274,11 +303,13 @@ pub fn sanitize(result: Extraction, default_currency: &str, today: NaiveDate) ->
         zero(&mut r.confidence, "category");
     }
 
-    // Rebuild the confidence map with exactly the six known keys: this both
-    // fills in any that are missing and drops any extras (e.g. from a
-    // non-strict provider), which `normalizer::validate` requires to be
-    // exactly six. Values are clamped into 0..=1, with non-finite treated as 0.
+    // Rebuild the confidence map with exactly the six known keys, plus
+    // `premises` when an address was found: this both fills in any that are
+    // missing and drops any extras (e.g. from a non-strict provider), which
+    // `normalizer::validate` requires. Values are clamped into 0..=1, with
+    // non-finite treated as 0.
     let mut confidence = BTreeMap::new();
+    let premises_key = r.premises.is_some().then_some("premises");
     for key in [
         "merchantName",
         "date",
@@ -286,7 +317,10 @@ pub fn sanitize(result: Extraction, default_currency: &str, today: NaiveDate) ->
         "tax",
         "currency",
         "category",
-    ] {
+    ]
+    .into_iter()
+    .chain(premises_key)
+    {
         let value = r.confidence.get(key).copied().unwrap_or(0.0);
         let value = if value.is_finite() {
             value.clamp(0.0, 1.0)
@@ -316,6 +350,7 @@ mod tests {
             tax_amount_minor: Some(100),
             currency: Some("RM".into()),
             suggested_category: Some("Meals".into()),
+            premises: None,
             confidence: BTreeMap::from([
                 ("merchantName".to_string(), 0.9),
                 ("date".to_string(), 0.9),
@@ -518,6 +553,30 @@ mod tests {
     }
 
     #[test]
+    fn date_with_equal_day_and_month_is_not_ambiguous() {
+        assert_eq!(
+            normalize_date("05/05/2026", Some("MYR"), today()),
+            Some(("2026-05-05".into(), false))
+        );
+    }
+
+    #[test]
+    fn date_whose_preferred_reading_is_in_the_future_uses_the_other_reading() {
+        // Day-first would be 9 Dec 2026, after today (27 Sep 2026), so the
+        // only real reading is 12 Sep 2026.
+        assert_eq!(
+            normalize_date("09/12/2026", Some("MYR"), today()),
+            Some(("2026-09-12".into(), false))
+        );
+        // Month-first (USD) would be 9 Dec 2026, in the future, so the
+        // day-first reading (12 Sep 2026) is the only real date.
+        assert_eq!(
+            normalize_date("12/09/2026", Some("USD"), today()),
+            Some(("2026-09-12".into(), false))
+        );
+    }
+
+    #[test]
     fn date_unambiguous_regardless_of_currency() {
         assert_eq!(
             normalize_date("13/04/2026", Some("MYR"), today()),
@@ -648,6 +707,7 @@ mod tests {
             tax_amount_minor: Some(100),
             currency: Some("ZZZ".into()),
             suggested_category: Some("NotACategory".into()),
+            premises: Some(format!("No 1,\u{0007} Jalan {}\n", "X".repeat(600))),
             confidence: BTreeMap::from([
                 ("merchantName".to_string(), 0.9),
                 ("date".to_string(), f64::NAN),
@@ -664,6 +724,12 @@ mod tests {
         let out = sanitize(hostile, "MYR", today());
         normalizer::validate(&out)
             .expect("sanitize output must always satisfy normalizer::validate");
+        let premises = out.premises.as_deref().unwrap();
+        assert!(premises.starts_with("No 1, Jalan XXX"));
+        assert_eq!(premises.chars().count(), 300);
+        assert!(!premises.chars().any(char::is_control));
+        // An address with no confidence of its own gets 0, never a missing key.
+        assert_eq!(out.confidence.get("premises"), Some(&0.0));
 
         // Fields with no salvageable reading are nulled...
         assert_eq!(out.date, None);
@@ -676,8 +742,9 @@ mod tests {
         // kept rather than nulled by the confidence clean-up.
         assert_eq!(out.merchant_name.as_deref(), Some("Z".repeat(200).as_str()));
         assert_eq!(out.tax_amount_minor, Some(100));
-        // Exactly the six known keys survive, extras are gone.
-        assert_eq!(out.confidence.len(), 6);
+        // Exactly the six known keys (plus `premises`, as an address was
+        // found) survive, extras are gone.
+        assert_eq!(out.confidence.len(), 7);
         assert!(!out.confidence.contains_key("bogusExtraKey"));
         assert!(!out.confidence.contains_key("anotherBogusKey"));
     }

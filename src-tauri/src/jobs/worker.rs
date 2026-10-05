@@ -195,6 +195,7 @@ impl AppService {
             raw_text: "",
             images: &images,
             default_currency: &settings.default_currency,
+            ocr_confidence: None,
         }) {
             Ok(result) => {
                 self.complete_extraction(id, token, result, FieldSource::OnlineAi, None)?;
@@ -214,10 +215,18 @@ impl AppService {
             }
         }
     }
-    pub fn complete_ocr(&self, id: &str, token: &str, raw_text: String) -> Result<()> {
+    pub fn complete_ocr(
+        &self,
+        id: &str,
+        token: &str,
+        raw_text: String,
+        ocr_confidence: Option<f64>,
+    ) -> Result<()> {
         if raw_text.len() > 500_000 {
             return Err(AppError::invalid("OCR output is too large."));
         }
+        // Tesseract reports 0–100; anything else is treated as unknown.
+        let ocr_confidence = ocr_confidence.filter(|c| c.is_finite() && (0.0..=100.0).contains(c));
         let settings = self.settings()?;
         if !settings.offline_ocr_enabled {
             return Err(AppError::new(
@@ -229,6 +238,7 @@ impl AppService {
             raw_text: &raw_text,
             images: &[],
             default_currency: &settings.default_currency,
+            ocr_confidence,
         })?;
         self.complete_extraction(id, token, result, FieldSource::LocalOcr, Some(raw_text))
     }
@@ -240,10 +250,13 @@ impl AppService {
         source: FieldSource,
         raw_text: Option<String>,
     ) -> Result<()> {
+        let today = chrono::Local::now().date_naive();
+        // Download the exchange rate a foreign receipt needs before taking the database lock.
+        let preview = sanitize::sanitize(result.clone(), &self.settings()?.default_currency, today);
+        self.prefetch_for(preview.currency.as_deref(), preview.date.as_deref());
         let mut db = self.conn()?;
         let tx = db.transaction()?;
         let settings = Self::settings_in(&tx)?;
-        let today = chrono::Local::now().date_naive();
         let result = sanitize::sanitize(result, &settings.default_currency, today);
         normalizer::validate(&result)?;
         let job = lease(&tx, id, token, Some("extract_receipt"))?;
@@ -251,46 +264,34 @@ impl AppService {
         if matches!(e.status, ExpenseStatus::Submitted | ExpenseStatus::Archived) {
             return Err(AppError::invalid("The expense is locked by its claim."));
         }
+        // Extraction reads the receipt's own amounts; conversion is re-derived below.
         let before = e.clone();
+        e.clear_conversion();
+        let (_, before_total, before_tax) = before.receipt_amounts();
         let is_manual = |e: &Expense, key: &str| {
             e.field_meta
                 .get(key)
                 .is_some_and(|m| m.source == FieldSource::Manual)
         };
-        // Amounts only mean something together with their currency's exponent,
-        // so an extracted total/tax is merged only when its currency agrees with
-        // the currency the expense will keep. A claim's currency is fixed, and a
-        // manually set currency always wins.
-        let claim_currency: Option<String> = match e.claim_id {
-            Some(ref claim_id) => Some(tx.query_row(
-                "SELECT currency FROM expense_claims WHERE id=?1",
-                params![claim_id],
-                |r| r.get(0),
-            )?),
-            None => None,
-        };
-        let pinned_currency = claim_currency.or_else(|| {
-            is_manual(&e, "currency")
-                .then(|| e.currency.clone())
-                .flatten()
-        });
+        // Amounts only mean something together with their currency's exponent.
+        // A manually set receipt currency always wins, so extracted amounts in
+        // another currency are not merged. A claim's currency is enforced after
+        // conversion by `check_claim_currency`.
+        let pinned_currency = is_manual(&e, "currency")
+            .then(|| e.currency.clone())
+            .flatten();
         let amounts_compatible = match (&pinned_currency, &result.currency) {
             (Some(pinned), Some(extracted)) => pinned == extracted,
             (Some(_), None) => false,
             (None, _) => true,
-        };
-        let extracted_currency = if pinned_currency.is_some() {
-            None
-        } else {
-            result.currency.clone()
         };
         let (extracted_total, extracted_tax) = if amounts_compatible {
             (result.total_amount_minor, result.tax_amount_minor)
         } else {
             (None, None)
         };
-        // Set when extracted data disagreed with a claim or a manual value and
-        // was discarded; a person should look at the receipt in that case.
+        // Set when extracted data disagreed with a manual value and was
+        // discarded; a person should look at the receipt in that case.
         let mut conflict = !amounts_compatible
             && (result.total_amount_minor.is_some() || result.tax_amount_minor.is_some());
         macro_rules! merge {
@@ -310,10 +311,11 @@ impl AppService {
             };
         }
         merge!(merchant_name, result.merchant_name.clone(), "merchantName");
+        merge!(premises, result.premises.clone(), "premises");
         merge!(occurred_at, result.date.clone(), "date");
         merge!(total_amount_minor, extracted_total, "total");
         merge!(tax_amount_minor, extracted_tax, "tax");
-        merge!(currency, extracted_currency, "currency");
+        merge!(currency, result.currency.clone(), "currency");
         // `sanitize` guarantees tax <= total within one extraction, but a manual
         // value on one side can still conflict with an extracted value on the
         // other. Drop the extracted side instead of failing the whole job.
@@ -321,12 +323,12 @@ impl AppService {
             if tax > total {
                 conflict = true;
                 if !is_manual(&e, "tax") {
-                    e.tax_amount_minor = before.tax_amount_minor.filter(|t| *t <= total);
+                    e.tax_amount_minor = before_tax.filter(|t| *t <= total);
                     if e.tax_amount_minor.is_none() {
                         e.field_meta.remove("tax");
                     }
                 } else if !is_manual(&e, "total") {
-                    e.total_amount_minor = before.total_amount_minor.filter(|t| *t >= tax);
+                    e.total_amount_minor = before_total.filter(|t| *t >= tax);
                     if e.total_amount_minor.is_none() {
                         e.field_meta.remove("total");
                     }
@@ -349,11 +351,14 @@ impl AppService {
                 );
             }
         }
+        Self::reconvert_in_tx(&tx, &mut e, &before, &settings)?;
+        Self::check_claim_currency(&tx, &e)?;
         validate_values(&ExpenseEdit {
             id: e.id.clone(),
             version: e.version,
             occurred_at: e.occurred_at.clone(),
             merchant_name: e.merchant_name.clone(),
+            premises: e.premises.clone(),
             total_amount_minor: e.total_amount_minor,
             tax_amount_minor: e.tax_amount_minor,
             currency: e.currency.clone(),

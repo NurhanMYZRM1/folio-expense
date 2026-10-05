@@ -44,6 +44,8 @@ A claim has a fixed currency; add/remove and status changes are transactional. M
 5. In one SQLite transaction insert receipt, expense, audit events, and pending jobs; commit.
 6. Workers can only lease jobs after this transaction commits.
 
+HEIC/HEIF (iPhone photos) is accepted alongside PNG, JPEG, and PDF. WebView2 and WebKitGTK cannot draw HEIC, and pdf-lib cannot embed it, so step 1 fully decodes it in Rust (pure-Rust `heif-oxide`, no system codec) and step 4 stores a JPEG `display.jpg` beside the untouched `original.heic`. `read_receipt` returns `ReceiptContent.mimeType` for the bytes it sends (the rendition for HEIC; `receipt.mimeType` still describes the original). A missing rendition is rebuilt from the original on the next read.
+
 Durable job insertion is inside the receipt transaction (execution is strictly after commit), closing the crash window between metadata commit and scheduling. A failed metadata transaction cleans its generated file. On startup, generated `.part` files and unreferenced UUID receipt directories are cleaned conservatively; original user files are never modified. Unknown directory names are untouched. Path resolution rejects traversal and symlink escapes.
 
 Leases use random tokens; stale completions cannot overwrite the current job. Heartbeats expire after two minutes. Interrupted running jobs resume at startup, up to three attempts before requiring an explicit retry. A renderer reload is recovered by lease expiry. A failure keeps the receipt and moves an extracting expense to review; manual entry always remains available. Failed exports never remove a claim.
@@ -54,7 +56,11 @@ Leases use random tokens; stale completions cannot overwrite the current job. He
 - Rust deserializes with unknown-field rejection and independently validates dates, currency, categories, amounts, tax/total relationship, and confidence bounds.
 - A later extraction merges only fields whose source is not `manual`, including protection for manually cleared values. Optimistic versions reject stale editor writes with a reload message.
 - Low-confidence core fields result in `needs_review`. A complete high-confidence extraction can be ready. Confidence indicates extraction certainty, not policy approval.
-- Offline heuristics use labelled totals/tax, ISO or day-first dates, supported currency codes, and a candidate merchant line. Undetected currency defaults to the user's preference with low confidence.
+- Offline heuristics use labelled totals/tax, ISO or day-first dates, supported currency codes, and a candidate merchant line, and earn confidence from cross-checks on the receipt itself so a clean scan is ready without review: the total is confirmed by subtotal + tax + service ± rounding − discount, by cash − change, or by a card/e-wallet line paying the same amount (or, on a clearly read page, by being the largest amount); a numeric date's day/month order follows the currency printed on the receipt, and a reading in the future is discarded; a missing currency is inferred from a Malaysian/Singapore address or registration, else the Settings currency is trusted unless the receipt shows a conflicting symbol; a category is suggested from merchant keywords. Tesseract's page confidence travels with the OCR text, and a page under 60/100 caps every field below the ready threshold so unreadable scans still go to review.
+
+## Currency conversion
+
+Expenses keep the receipt's own currency and amounts in `original_*` columns when they are converted; `currency`/`total`/`tax` always hold the claimed amounts, so claims, totals, PDF and CSV need no conversion logic of their own. Conversion uses integer arithmetic on the published decimal rate (half-up to the target currency's minor unit). Rates come from a `RateSource` (Frankfurter/ECB in the app, a fixed table in tests) and are cached in `exchange_rates` keyed by base, quote and receipt date. Downloads happen before a transaction takes the database lock; inside a transaction only the cache is read. Edits and extractions re-derive the conversion from the receipt amounts; an expense in a claim must stay in the claim's currency. A sweep (`convert_pending`, run by the renderer every two minutes) converts receipts that were imported while offline.
 
 ## Secrets and renderer security
 

@@ -1,29 +1,51 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Link, useParams } from 'react-router-dom';
-import { ArrowLeft, Check, RotateCcw, Save, ShieldCheck } from 'lucide-react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import {
+  ArrowLeft,
+  ArrowRightLeft,
+  Check,
+  RotateCcw,
+  Save,
+  ShieldCheck,
+  Trash2,
+} from 'lucide-react';
 import type { Expense, ExpenseEdit } from '../../bindings/generated';
 import { api } from '../../lib/ipc';
 import { errorMessage } from '../../lib/errors';
 import { useWorkspace } from '../../app/providers';
 import { CATEGORIES } from '../../lib/constants';
-import { CURRENCIES, moneyInput, parseMoney } from '../../lib/money';
+import { CURRENCIES, formatMoney, moneyInput, parseMoney } from '../../lib/money';
 import { Confidence, Loading, StatusBadge } from '../../components/ui';
 import { ReceiptViewer } from '../../components/ReceiptViewer';
+import { Modal } from '../../components/motion';
 function Editor({ initial, reload }: { initial: Expense; reload: () => Promise<void> }) {
-  const { notify, refresh, expenses } = useWorkspace();
+  const { notify, refresh, expenses, settings } = useWorkspace();
+  const navigate = useNavigate();
+  // The form edits the amounts printed on the receipt. For a converted
+  // foreign receipt those are the original_* values; the claimed amount in
+  // the home currency is always worked out from them.
+  const receiptCurrency = initial.originalCurrency ?? initial.currency ?? settings.defaultCurrency;
   const [form, setForm] = useState({
     merchant: initial.merchantName ?? '',
+    premises: initial.premises ?? '',
     date: initial.occurredAt ?? '',
-    total: moneyInput(initial.totalAmountMinor, initial.currency ?? 'MYR'),
-    tax: moneyInput(initial.taxAmountMinor, initial.currency ?? 'MYR'),
-    currency: initial.currency ?? 'MYR',
+    total: moneyInput(
+      initial.originalCurrency ? initial.originalTotalAmountMinor : initial.totalAmountMinor,
+      receiptCurrency,
+    ),
+    tax: moneyInput(
+      initial.originalCurrency ? initial.originalTaxAmountMinor : initial.taxAmountMinor,
+      receiptCurrency,
+    ),
+    currency: receiptCurrency,
     category: initial.category,
     description: initial.description,
   });
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(''),
     [dirty, setDirty] = useState(false),
-    [changed, setChanged] = useState<Set<string>>(new Set());
+    [changed, setChanged] = useState<Set<string>>(new Set()),
+    [confirmDelete, setConfirmDelete] = useState(false);
   const latest = expenses.find((e) => e.id === initial.id),
     stale = latest && latest.version !== initial.version;
   const locked = ['submitted', 'archived'].includes(initial.status);
@@ -49,6 +71,7 @@ function Editor({ initial, reload }: { initial: Expense; reload: () => Promise<v
         id: initial.id,
         version: initial.version,
         merchantName: form.merchant.trim() || null,
+        premises: form.premises.trim() || null,
         occurredAt: form.date || null,
         totalAmountMinor: parseMoney(form.total, form.currency),
         taxAmountMinor: parseMoney(form.tax, form.currency),
@@ -76,6 +99,32 @@ function Editor({ initial, reload }: { initial: Expense; reload: () => Promise<v
     } catch (e) {
       notify(errorMessage(e), true);
     }
+  }
+  async function remove() {
+    setBusy(true);
+    try {
+      await api.deleteExpenses([initial.id]);
+      setDirty(false);
+      await refresh();
+      notify('Expense and receipt deleted.');
+      navigate('/expenses');
+    } catch (e) {
+      setError(errorMessage(e));
+      setConfirmDelete(false);
+    } finally {
+      setBusy(false);
+    }
+  }
+  const home = settings.defaultCurrency,
+    amountsEdited = ['currency', 'total', 'tax', 'date'].some((k) => changed.has(k));
+  let conversionNote: string | null = null;
+  if (initial.originalCurrency && !amountsEdited) {
+    conversionNote = `Claimed as ${formatMoney(initial.totalAmountMinor, initial.currency ?? home)} · ${initial.exchangeRate} ${initial.currency} per 1 ${initial.originalCurrency}, rate for ${initial.exchangeRateDate} (European Central Bank).`;
+  } else if (settings.currencyConversionEnabled && form.currency !== home) {
+    conversionNote =
+      initial.currency === form.currency && !amountsEdited
+        ? `Waiting for an exchange rate. Folio converts this to ${home} automatically when you are online.`
+        : `Will be converted to ${home} at the rate for the receipt date when you save.`;
   }
   function submit(e: FormEvent) {
     e.preventDefault();
@@ -129,6 +178,17 @@ function Editor({ initial, reload }: { initial: Expense; reload: () => Promise<v
                   maxLength={300}
                   onChange={(e) => update('merchant', e.target.value)}
                   placeholder="Merchant or supplier name"
+                />
+              </label>
+              <label className="field">
+                <span>
+                  Premises <Confidence meta={meta('premises')} />
+                </span>
+                <input
+                  value={form.premises}
+                  maxLength={300}
+                  onChange={(e) => update('premises', e.target.value)}
+                  placeholder="Shop or outlet address, read from the receipt"
                 />
               </label>
               <div className="form-grid">
@@ -186,6 +246,12 @@ function Editor({ initial, reload }: { initial: Expense; reload: () => Promise<v
                   </div>
                 </label>
               </div>
+              {conversionNote && (
+                <div className="form-tip conversion-note">
+                  <ArrowRightLeft size={16} />
+                  <span>{conversionNote}</span>
+                </div>
+              )}
               <label className="field">
                 <span>
                   Category <Confidence meta={meta('category')} />
@@ -244,6 +310,48 @@ function Editor({ initial, reload }: { initial: Expense; reload: () => Promise<v
               <span>Low-confidence fields are highlighted for review.</span>
             </div>
           )}
+          {!locked && (
+            <div className="delete-row">
+              <button
+                className="text-button danger-text"
+                disabled={busy || initial.status === 'extracting'}
+                onClick={() => setConfirmDelete(true)}
+              >
+                <Trash2 size={13} />
+                Delete expense
+              </button>
+            </div>
+          )}
+          <Modal
+            open={confirmDelete}
+            onClose={() => !busy && setConfirmDelete(false)}
+            labelledBy="delete-expense-title"
+            describedBy="delete-expense-body"
+            role="alertdialog"
+          >
+            <div className="modal-icon">
+              <Trash2 size={22} />
+            </div>
+            <h2 id="delete-expense-title">Delete this expense?</h2>
+            <p id="delete-expense-body">
+              Delete this expense{initial.receiptId ? ' and its stored receipt file' : ''}
+              {initial.claimId ? ', and remove it from its claim' : ''}? This cannot be undone.
+            </p>
+            <div className="modal-actions">
+              <button
+                className="button secondary"
+                data-autofocus
+                disabled={busy}
+                onClick={() => setConfirmDelete(false)}
+              >
+                Cancel
+              </button>
+              <button className="button danger" disabled={busy} onClick={() => void remove()}>
+                <Trash2 size={15} />
+                {busy ? 'Deleting…' : 'Delete permanently'}
+              </button>
+            </div>
+          </Modal>
         </section>
       </div>
     </>

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { copyFile, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { PDFDocument, PDFName, PDFArray, StandardFonts } from 'pdf-lib';
@@ -71,9 +71,14 @@ test('offline receipt → real Rust/SQLite → OCR → review → claim → PDF 
       .poll(async () => (await bridge.call<Expense[]>('list_expenses'))[0]?.status, {
         timeout: 80_000,
       })
-      .toBe('needs_review');
+      // Subtotal + tax = total on a clear scan, so no manual review is needed.
+      .toBe('ready');
     let [expense] = await bridge.call<Expense[]>('list_expenses');
     expect(expense.totalAmountMinor).toBe(8450);
+    expect(expense.taxAmountMinor).toBe(478);
+    expect(expense.occurredAt).toBe('2026-09-27');
+    expect(expense.currency).toBe('MYR');
+    expect(expense.category).toBe('Meals');
     expect(expense.merchantName).toContain('KOPI');
     const receiptId = expense.receiptId!;
     await page.getByRole('button', { name: /Drag receipts into your workspace/ }).click();
@@ -192,9 +197,11 @@ test('multi-page PDF receipt renders and extracts entirely offline', async ({ pa
       .poll(async () => (await bridge.call<Expense[]>('list_expenses'))[0]?.status, {
         timeout: 80_000,
       })
-      .toBe('needs_review');
+      // The total is the largest amount on a clearly read page.
+      .toBe('ready');
     const [expense] = await bridge.call<Expense[]>('list_expenses');
     expect(expense.totalAmountMinor).toBe(31800);
+    expect(expense.category).toBe('Accommodation');
     expect(expense.merchantName).toContain('CITY HOTEL');
     expect((await bridge.call<Job[]>('list_jobs')).every((job) => job.status === 'completed')).toBe(
       true,
@@ -224,6 +231,171 @@ test('multi-page PDF receipt renders and extracts entirely offline', async ({ pa
     expect((await PDFDocument.load(bytes)).getPageCount()).toBe(4);
     await writeFile(testInfo.outputPath('pdf-receipt-claim.pdf'), bytes);
     expect(external).toEqual([]);
+  } finally {
+    await page.goto('about:blank');
+    await bridge.close();
+  }
+});
+
+test('imported receipts are added to a claim in bulk and deleted with their files', async ({
+  page,
+}) => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'folio-bulk-e2e-'));
+  await page.goto('/');
+  const receipts: string[] = [];
+  for (const [name, merchant, lines] of [
+    ['cafe.png', 'KOPI HOUSE', ['Subtotal 79.72', 'Tax 4.78', 'TOTAL MYR 84.50']],
+    ['parking.png', 'CITY PARKING', ['Parking 2 hours', 'TOTAL MYR 6.00', 'CASH 6.00']],
+  ] as const) {
+    const data = await page.evaluate(
+      ([merchant, lines]) => {
+        const c = document.createElement('canvas');
+        c.width = 850;
+        c.height = 900;
+        const x = c.getContext('2d')!;
+        x.fillStyle = 'white';
+        x.fillRect(0, 0, 850, 900);
+        x.fillStyle = '#111';
+        x.font = 'bold 44px Arial';
+        x.fillText(merchant, 80, 100);
+        x.font = '30px Arial';
+        x.fillText('Date: 2026-09-27', 80, 220);
+        lines.forEach((line, i) => x.fillText(line, 80, 340 + i * 80));
+        return c.toDataURL('image/png').split(',')[1];
+      },
+      [merchant, lines] as [string, readonly string[]],
+    );
+    const file = path.join(directory, name);
+    await writeFile(file, Buffer.from(data, 'base64'));
+    receipts.push(file);
+  }
+  const bridge = new RustBridge(path.join(directory, 'app'));
+  await installBridge(page, bridge, receipts);
+  // A full navigation so the bridge's init script runs on the app page.
+  await page.goto('about:blank');
+  try {
+    await page.goto('/#/import');
+    await page.getByRole('button', { name: /Drag receipts into your workspace/ }).click();
+    await expect
+      .poll(
+        async () =>
+          (await bridge.call<Expense[]>('list_expenses'))
+            .map((e) => e.status)
+            .sort()
+            .join(','),
+        { timeout: 90_000 },
+      )
+      .toBe('ready,ready');
+    // Add both imported receipts to a new claim at once.
+    await page.getByRole('link', { name: 'Claims', exact: true }).click();
+    await page.getByRole('button', { name: 'New claim' }).click();
+    await page.getByLabel('Claim title').fill('Bulk claim');
+    await page.getByRole('button', { name: 'Create claim', exact: true }).click();
+    await page.getByRole('button', { name: 'Add expenses' }).click();
+    await page.getByRole('button', { name: 'Add all 2' }).click();
+    await expect
+      .poll(async () => (await bridge.call<Claim[]>('list_claims'))[0]?.expenseCount)
+      .toBe(2);
+    // Select one expense in the register and delete it.
+    const parking = (await bridge.call<Expense[]>('list_expenses')).find((e) =>
+      e.merchantName?.includes('PARKING'),
+    )!;
+    await page.goto('/#/expenses');
+    await page.getByRole('checkbox', { name: `Select ${parking.merchantName}` }).check();
+    await page.getByRole('button', { name: 'Delete', exact: true }).click();
+    await page.getByRole('button', { name: 'Delete', exact: true }).click();
+    await expect(page.getByText('Deleted 1 expense and their receipts.')).toBeVisible();
+    const remaining = await bridge.call<Expense[]>('list_expenses');
+    expect(remaining.map((e) => e.id)).not.toContain(parking.id);
+    expect((await bridge.call<Claim[]>('list_claims'))[0].expenseCount).toBe(1);
+    await expect(
+      readFile(path.join(directory, 'app', 'receipts', parking.receiptId!, 'original.png')),
+    ).rejects.toThrow();
+  } finally {
+    await page.goto('about:blank');
+    await bridge.close();
+  }
+});
+
+test('an iPhone HEIC receipt is read, previewed and kept as the original', async ({ page }) => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'folio-heic-e2e-'));
+  // A synthetic receipt saved as HEIC by macOS (no real photo is committed).
+  const receiptPath = path.join(directory, 'IMG_0427.HEIC');
+  await copyFile(path.resolve('tests/fixtures/lunch.heic'), receiptPath);
+  const original = await readFile(receiptPath);
+  const bridge = new RustBridge(path.join(directory, 'app'));
+  await installBridge(page, bridge, [receiptPath]);
+  await page.goto('about:blank');
+  try {
+    await page.goto('/#/import');
+    await page.getByRole('button', { name: /Drag receipts into your workspace/ }).click();
+    await expect(page.getByText('Original saved. Extraction and preview queued.')).toBeVisible();
+    // Local OCR reads the JPEG rendition, since Chromium cannot decode HEIC.
+    await expect
+      .poll(async () => (await bridge.call<Expense[]>('list_expenses'))[0]?.status, {
+        timeout: 80_000,
+      })
+      .toBe('ready');
+    const [expense] = await bridge.call<Expense[]>('list_expenses');
+    expect(expense.totalAmountMinor).toBe(2500);
+    expect(expense.taxAmountMinor).toBe(142);
+    expect(expense.receiptFilename).toBe('IMG_0427.HEIC');
+    const receiptDir = path.join(directory, 'app', 'receipts', expense.receiptId!);
+    expect(Buffer.compare(await readFile(path.join(receiptDir, 'original.heic')), original)).toBe(
+      0,
+    );
+    expect((await readFile(path.join(receiptDir, 'display.jpg'))).subarray(0, 3)).toEqual(
+      Buffer.from([0xff, 0xd8, 0xff]),
+    );
+    // The thumbnail job ran on the rendition too.
+    await expect
+      .poll(async () => {
+        try {
+          return (await readFile(path.join(receiptDir, 'preview.webp'))).subarray(8, 12).toString();
+        } catch {
+          return '';
+        }
+      })
+      .toBe('WEBP');
+    // The detail viewer draws the rendition at its real size.
+    await page.goto(`/#/expenses/${expense.id}`);
+    const preview = page.getByRole('img', { name: 'Preview of IMG_0427.HEIC' });
+    await expect(preview).toBeVisible();
+    await expect
+      .poll(() => preview.evaluate((img: HTMLImageElement) => img.naturalWidth))
+      .toBe(850);
+  } finally {
+    await page.goto('about:blank');
+    await bridge.close();
+  }
+});
+
+test('a phone photo with a hand shadow over the totals still reads the total', async ({ page }) => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'folio-shadow-e2e-'));
+  // Synthetic receipt (no real photo is committed): the lower right, where
+  // Total/Paid/Change are printed, sits in a shadow at ~1/3 brightness, the
+  // way a hand or phone shades a receipt photographed on a table.
+  const receiptPath = path.join(directory, 'IMG_7808.HEIC');
+  await copyFile(path.resolve('tests/fixtures/shadowed.heic'), receiptPath);
+  const bridge = new RustBridge(path.join(directory, 'app'));
+  await installBridge(page, bridge, [receiptPath]);
+  await page.goto('about:blank');
+  try {
+    await page.goto('/#/import');
+    await page.getByRole('button', { name: /Drag receipts into your workspace/ }).click();
+    await expect(page.getByText('Original saved. Extraction and preview queued.')).toBeVisible();
+    // Extraction is finished once the expense leaves `extracting`; before the
+    // fix it landed in needs_review with no total and a ¥/JPY guess.
+    await expect
+      .poll(async () => (await bridge.call<Expense[]>('list_expenses'))[0]?.status, {
+        timeout: 80_000,
+      })
+      .toMatch(/^(ready|needs_review)$/);
+    const [expense] = await bridge.call<Expense[]>('list_expenses');
+    expect(expense.merchantName).toBe('KEDAI RUNCIT AMAN');
+    expect(expense.occurredAt).toBe('2026-09-27');
+    expect(expense.currency).toBe('MYR');
+    expect(expense.totalAmountMinor).toBe(28300);
   } finally {
     await page.goto('about:blank');
     await bridge.close();

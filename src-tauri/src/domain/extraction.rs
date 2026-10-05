@@ -25,6 +25,9 @@ pub struct Extraction {
     pub tax_amount_minor: Option<i64>,
     pub currency: Option<String>,
     pub suggested_category: Option<String>,
+    /// Where the purchase was made: the address printed on the receipt.
+    #[serde(default)]
+    pub premises: Option<String>,
     pub confidence: BTreeMap<String, f64>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

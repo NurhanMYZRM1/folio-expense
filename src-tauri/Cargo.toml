@@ -21,7 +21,9 @@ required-features = ["bindings"]
 default = ["desktop"]
 test-support = []
 bindings = []
-desktop = ["dep:tauri", "dep:tauri-plugin-dialog", "dep:tauri-plugin-deep-link", "dep:tauri-plugin-single-instance", "dep:tauri-build"]
+desktop = ["dep:tauri", "dep:tauri-plugin-dialog", "dep:tauri-plugin-deep-link", "dep:tauri-plugin-single-instance", "dep:tauri-build", "dep:open"]
+# C ABI for the Expo mobile app (src/ffi.rs); build with --no-default-features.
+mobile = []
 [build-dependencies]
 tauri-build = { version = "2", features = [], optional = true }
 [dependencies]
@@ -41,11 +43,23 @@ ts-rs = { version = "11", features = ["serde-json-impl", "no-serde-warnings"] }
 keyring = { version = "3", features = ["apple-native", "windows-native"] }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+# Pure-Rust HEIC/HEIF decoding (iPhone photos): no C libraries or OS codecs to ship.
+heif-oxide = "0.1"
+imagesize = "0.15"
 regex = "1"
 zeroize = "1"
-open = "5"
+open = { version = "5", optional = true }
 [dev-dependencies]
 tempfile = "3"
+
+# HEIC decoding, resizing and JPEG encoding are ~20x slower unoptimised; keep
+# `tauri dev` and test imports of phone photos quick.
+[profile.dev.package.rust_h265]
+opt-level = 3
+[profile.dev.package.heif-oxide]
+opt-level = 3
+[profile.dev.package.image]
+opt-level = 3
 
 [[bin]]
 name = "test-driver"

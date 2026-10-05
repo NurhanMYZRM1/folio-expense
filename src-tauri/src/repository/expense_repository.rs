@@ -3,7 +3,7 @@ use crate::{
     error::{AppError, Result},
 };
 use rusqlite::{params, Connection, Row};
-const SELECT:&str="SELECT e.id,e.receipt_id,e.occurred_at,e.merchant_name,e.total_amount_minor,e.tax_amount_minor,e.currency,e.category,e.description,e.status,e.field_meta,e.extraction_confidence,e.created_at,e.updated_at,e.version,e.sync_state,r.original_filename,ce.claim_id FROM expenses e LEFT JOIN receipt_files r ON r.id=e.receipt_id LEFT JOIN claim_expenses ce ON ce.expense_id=e.id";
+const SELECT:&str="SELECT e.id,e.receipt_id,e.occurred_at,e.merchant_name,e.total_amount_minor,e.tax_amount_minor,e.currency,e.category,e.description,e.status,e.field_meta,e.extraction_confidence,e.created_at,e.updated_at,e.version,e.sync_state,r.original_filename,ce.claim_id,e.original_currency,e.original_total_amount_minor,e.original_tax_amount_minor,e.exchange_rate,e.exchange_rate_date,e.premises FROM expenses e LEFT JOIN receipt_files r ON r.id=e.receipt_id LEFT JOIN claim_expenses ce ON ce.expense_id=e.id";
 fn row(r: &Row) -> rusqlite::Result<Expense> {
     let status: String = r.get(9)?;
     let status = match status.as_str() {
@@ -38,6 +38,12 @@ fn row(r: &Row) -> rusqlite::Result<Expense> {
         sync_state: r.get(15)?,
         receipt_filename: r.get(16)?,
         claim_id: r.get(17)?,
+        original_currency: r.get(18)?,
+        original_total_amount_minor: r.get(19)?,
+        original_tax_amount_minor: r.get(20)?,
+        exchange_rate: r.get(21)?,
+        exchange_rate_date: r.get(22)?,
+        premises: r.get(23)?,
     })
 }
 pub fn all(db: &Connection) -> Result<Vec<Expense>> {
@@ -63,7 +69,7 @@ pub fn save(db: &Connection, e: &Expense) -> Result<()> {
             "This expense status change is not allowed.",
         ));
     }
-    let count=db.execute("UPDATE expenses SET occurred_at=?1,merchant_name=?2,total_amount_minor=?3,tax_amount_minor=?4,currency=?5,category=?6,description=?7,status=?8,field_meta=?9,extraction_confidence=?10,updated_at=?11,version=version+1,sync_state='local_only' WHERE id=?12 AND version=?13",params![e.occurred_at,e.merchant_name,e.total_amount_minor,e.tax_amount_minor,e.currency,e.category,e.description,e.status.as_str(),serde_json::to_string(&e.field_meta)?,e.extraction_confidence,e.updated_at,e.id,e.version])?;
+    let count=db.execute("UPDATE expenses SET occurred_at=?1,merchant_name=?2,total_amount_minor=?3,tax_amount_minor=?4,currency=?5,category=?6,description=?7,status=?8,field_meta=?9,extraction_confidence=?10,updated_at=?11,original_currency=?14,original_total_amount_minor=?15,original_tax_amount_minor=?16,exchange_rate=?17,exchange_rate_date=?18,premises=?19,version=version+1,sync_state='local_only' WHERE id=?12 AND version=?13",params![e.occurred_at,e.merchant_name,e.total_amount_minor,e.tax_amount_minor,e.currency,e.category,e.description,e.status.as_str(),serde_json::to_string(&e.field_meta)?,e.extraction_confidence,e.updated_at,e.id,e.version,e.original_currency,e.original_total_amount_minor,e.original_tax_amount_minor,e.exchange_rate,e.exchange_rate_date,e.premises])?;
     if count != 1 {
         return Err(AppError::new(
             "Conflict",

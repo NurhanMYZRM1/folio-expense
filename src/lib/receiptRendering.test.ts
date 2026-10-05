@@ -1,8 +1,101 @@
 import { describe, it, expect } from 'vitest';
-import { enhanceForOcr } from './receiptRendering';
+import {
+  binarizeForOcr,
+  enhanceForOcr,
+  lightingUnevenness,
+  ocrScale,
+  prepareForOcr,
+  UNEVEN_LIGHTING,
+} from './receiptRendering';
 function pixel(r: number, g: number, b: number, a = 255): Uint8ClampedArray {
   return new Uint8ClampedArray([r, g, b, a]);
 }
+/**
+ * A 600×800 gray "receipt": paper at `paper(x, y)` with dark text-like bars
+ * (ink at 35% of the local paper brightness) every 40 px.
+ */
+function receipt(paper: (x: number, y: number) => number) {
+  const width = 600,
+    height = 800;
+  const data = new Uint8ClampedArray(width * height * 4);
+  const isInk = (x: number, y: number) => x >= 60 && x < 540 && y % 40 >= 14 && y % 40 < 24;
+  for (let y = 0; y < height; y++)
+    for (let x = 0; x < width; x++) {
+      const p = paper(x, y);
+      const v = isInk(x, y) ? p * 0.35 : p;
+      const o = (y * width + x) * 4;
+      data[o] = data[o + 1] = data[o + 2] = v;
+      data[o + 3] = 255;
+    }
+  const at = (x: number, y: number) => data[(y * width + x) * 4];
+  return { data, width, height, at, isInk };
+}
+// The lower-right quadrant sits in a hand shadow: paper there is 1/3 as bright.
+const shadowed = (x: number, y: number) => (x > 300 && y > 400 ? 78 : 235);
+describe('prepareForOcr', () => {
+  it('keeps the contrast stretch for evenly lit scans, PDFs and screenshots', () => {
+    const even = receipt(() => 235);
+    const reference = Uint8ClampedArray.from(even.data);
+    enhanceForOcr(reference);
+    expect(prepareForOcr(even.data, even.width, even.height)).toBe('standard');
+    // Index of the first differing byte (-1 = identical). toEqual on ~2M
+    // bytes takes several seconds and trips the test timeout.
+    expect(even.data.findIndex((v, i) => v !== reference[i])).toBe(-1);
+  });
+  it('flattens a shadow so shaded paper is as white as lit paper', () => {
+    const r = receipt(shadowed);
+    expect(prepareForOcr(r.data, r.width, r.height)).toBe('flattened');
+    const litPaper = r.at(100, 30),
+      shadePaper = r.at(450, 630);
+    expect(litPaper).toBeGreaterThan(240);
+    expect(shadePaper).toBeGreaterThan(240);
+    // Ink stays dark (and readable) on both sides of the shadow edge.
+    expect(r.isInk(100, 135)).toBe(true);
+    expect(r.at(100, 135)).toBeLessThan(110);
+    expect(r.isInk(450, 655)).toBe(true);
+    expect(r.at(450, 655)).toBeLessThan(110);
+    // Before the fix the shaded paper (78) was darker than lit ink (82).
+    expect(shadePaper - r.at(450, 655)).toBeGreaterThan(130);
+    // Paper right beside the shadow edge stays clearly lighter than ink: a
+    // background that bleeds across the edge leaves a dark ring OCR reads as
+    // ink (a hard-edged shadow still softens slightly, so not fully white).
+    expect(r.at(290, 630)).toBeGreaterThan(200);
+    expect(r.at(312, 630)).toBeGreaterThan(200);
+  });
+  it('joins dot-matrix dots into solid strokes', () => {
+    // A row of 1 px dots, 3 px apart, inside the shadow.
+    const r = receipt(shadowed);
+    const dot = (x: number, y: number) => x % 3 === 0 && y >= 600 && y < 606;
+    for (let y = 596; y < 610; y++)
+      for (let x = 360; x < 520; x++) {
+        const o = (y * r.width + x) * 4;
+        r.data[o] = r.data[o + 1] = r.data[o + 2] = dot(x, y) ? 27 : 78;
+      }
+    prepareForOcr(r.data, r.width, r.height);
+    // The gaps between dots are now ink too.
+    expect(r.at(400, 603)).toBeLessThan(140);
+    expect(r.at(401, 603)).toBeLessThan(140);
+  });
+  it('forces alpha to 255 and leaves pixels gray', () => {
+    const r = receipt(shadowed);
+    for (let i = 3; i < r.data.length; i += 4) r.data[i] = 7;
+    prepareForOcr(r.data, r.width, r.height);
+    let opaqueGray = true;
+    for (let i = 0; i < r.data.length; i += 4)
+      opaqueGray &&= r.data[i + 3] === 255 && r.data[i + 1] === r.data[i];
+    expect(opaqueGray).toBe(true);
+  });
+});
+describe('lightingUnevenness', () => {
+  it('is 0 for even paper and large for a deep shadow', () => {
+    expect(lightingUnevenness(new Float32Array(100).fill(230))).toBe(0);
+    const half = new Float32Array(100).fill(230).fill(80, 50);
+    expect(lightingUnevenness(half)).toBeGreaterThan(UNEVEN_LIGHTING);
+    // A gentle vignette (10% falloff) is not a shadow.
+    const vignette = Float32Array.from({ length: 100 }, (_, i) => 230 - i * 0.23);
+    expect(lightingUnevenness(vignette)).toBeLessThan(UNEVEN_LIGHTING);
+  });
+});
 describe('enhanceForOcr', () => {
   it('converts to grayscale using Rec. 601 luma and forces alpha to 255', () => {
     const white = pixel(255, 255, 255, 10);
@@ -49,5 +142,26 @@ describe('enhanceForOcr', () => {
     const nearFlat = new Uint8ClampedArray([100, 100, 100, 255, 110, 110, 110, 255]);
     enhanceForOcr(nearFlat);
     expect([...nearFlat]).toEqual([100, 100, 100, 255, 110, 110, 110, 255]);
+  });
+});
+describe('ocrScale', () => {
+  it('enlarges small receipts up to 2× and leaves large ones alone', () => {
+    expect(ocrScale(400, 600)).toBe(2);
+    expect(ocrScale(850, 1050)).toBeCloseTo(1600 / 1050);
+    expect(ocrScale(1700, 2200)).toBe(1);
+    expect(ocrScale(0, 0)).toBe(1);
+  });
+});
+describe('binarizeForOcr', () => {
+  it('turns faded gray paper white and keeps the ink black', () => {
+    // Faded thermal paper: gray (150) paper inside a white margin, ink at 35%.
+    const r = receipt((x, y) => (x < 40 || x > 560 || y < 40 || y > 760 ? 250 : 150));
+    binarizeForOcr(r.data, r.width, r.height);
+    expect(r.at(100, 30 + 40 * 3)).toBe(255); // paper between text bars
+    expect(r.isInk(100, 135)).toBe(true);
+    expect(r.at(100, 135)).toBe(0);
+    expect(r.at(20, 20)).toBe(255); // white margin
+    for (let i = 0; i < r.data.length; i += 4)
+      if (r.data[i] !== 0 && r.data[i] !== 255) throw new Error(`gray pixel at ${i / 4}`);
   });
 });

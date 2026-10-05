@@ -22,6 +22,8 @@ import { errorMessage } from '../../lib/errors';
 import { CURRENCIES, formatMoney } from '../../lib/money';
 import { dateLabel } from '../../lib/constants';
 import type { ClaimDetail as Detail, ClaimStatus, CsvExport } from '../../bindings/generated';
+import { AnimatePresence, motion } from 'motion/react';
+import { insertMotion, listItem, spring } from '../../components/motion';
 export function Claims() {
   const { claims, settings, notify, refresh } = useWorkspace();
   const navigate = useNavigate();
@@ -57,70 +59,83 @@ export function Claims() {
           </button>
         }
       />
-      {creating && (
-        <form className="panel new-claim-form" onSubmit={create}>
-          <label className="field">
-            <span>Claim title</span>
-            <input
-              autoFocus
-              required
-              maxLength={200}
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g. September client visits"
-            />
-          </label>
-          <label className="field">
-            <span>Currency</span>
-            <select value={currency} onChange={(e) => setCurrency(e.target.value)}>
-              {CURRENCIES.map((c) => (
-                <option key={c}>{c}</option>
-              ))}
-            </select>
-          </label>
-          <button className="button secondary" type="button" onClick={() => setCreating(false)}>
-            Cancel
-          </button>
-          <button className="button primary" disabled={busy || !title.trim()} type="submit">
-            Create claim
-          </button>
-        </form>
-      )}
+      <AnimatePresence initial={false}>
+        {creating && (
+          <motion.form className="panel new-claim-form" onSubmit={create} {...insertMotion}>
+            <label className="field">
+              <span>Claim title</span>
+              <input
+                autoFocus
+                required
+                maxLength={200}
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="e.g. September client visits"
+              />
+            </label>
+            <label className="field">
+              <span>Currency</span>
+              <select value={currency} onChange={(e) => setCurrency(e.target.value)}>
+                {CURRENCIES.map((c) => (
+                  <option key={c}>{c}</option>
+                ))}
+              </select>
+            </label>
+            <button className="button secondary" type="button" onClick={() => setCreating(false)}>
+              Cancel
+            </button>
+            <button className="button primary" disabled={busy || !title.trim()} type="submit">
+              Create claim
+            </button>
+          </motion.form>
+        )}
+      </AnimatePresence>
       <div className="expense-tabs">
         {['', 'draft', 'submitted', 'archived'].map((s) => (
           <button className={filter === s ? 'active' : ''} key={s} onClick={() => setFilter(s)}>
             {s ? s[0].toUpperCase() + s.slice(1) : 'All claims'}{' '}
             <span>{claims.filter((c) => !s || c.status === s).length}</span>
+            {filter === s && (
+              <motion.i
+                className="tab-underline"
+                layoutId="claims-tab"
+                transition={spring.indicator}
+              />
+            )}
           </button>
         ))}
       </div>
       {filtered.length ? (
         <div className="claim-grid">
-          {filtered.map((c) => (
-            <Link className="claim-card" to={`/claims/${c.id}`} key={c.id}>
-              <div className="claim-card-top">
-                <span className="claim-icon">
-                  <Files size={21} />
-                </span>
-                <StatusBadge status={c.status} />
-              </div>
-              <span className="claim-number">{c.claimNumber}</span>
-              <h2>{c.title}</h2>
-              <p>
-                {c.expenseCount} expenses · Created {dateLabel(c.createdAt)}
-              </p>
-              <div className="claim-card-bottom">
-                <strong>{formatMoney(c.totalAmountMinor, c.currency)}</strong>
-                <ArrowUpRight size={18} />
-              </div>
-            </Link>
-          ))}
+          <AnimatePresence mode="popLayout" initial={false}>
+            {filtered.map((c, i) => (
+              <motion.div key={c.id} {...listItem(i)} layout>
+                <Link className="claim-card" to={`/claims/${c.id}`}>
+                  <div className="claim-card-top">
+                    <span className="claim-icon">
+                      <Files size={21} />
+                    </span>
+                    <StatusBadge status={c.status} />
+                  </div>
+                  <span className="claim-number">{c.claimNumber}</span>
+                  <h2>{c.title}</h2>
+                  <p>
+                    {c.expenseCount} expenses · Created {dateLabel(c.createdAt)}
+                  </p>
+                  <div className="claim-card-bottom">
+                    <strong>{formatMoney(c.totalAmountMinor, c.currency)}</strong>
+                    <ArrowUpRight size={18} />
+                  </div>
+                </Link>
+              </motion.div>
+            ))}
+          </AnimatePresence>
         </div>
       ) : (
         <section className="panel">
           <EmptyState
             title={filter ? `No ${filter} claims` : 'Make your first claim'}
-            description="Create a claim, add reviewed expenses in the same currency, and export a complete PDF report."
+            description="Create a claim, add your imported receipts, and export a complete PDF report."
             action={
               <button className="button primary" onClick={() => setCreating(true)}>
                 <Plus size={15} />
@@ -142,6 +157,7 @@ export function ClaimDetail() {
     [description, setDescription] = useState(''),
     [busy, setBusy] = useState(false),
     [adding, setAdding] = useState(false),
+    [picked, setPicked] = useState<Set<string>>(new Set()),
     [csvBusy, setCsvBusy] = useState(false),
     [csvExport, setCsvExport] = useState<CsvExport | null>(null);
   async function load() {
@@ -174,9 +190,35 @@ export function ClaimDetail() {
   if (!detail) return error ? <div className="inline-error">{error}</div> : <Loading />;
   const { claim } = detail,
     draft = claim.status === 'draft';
-  const available = expenses.filter(
-    (e) => e.status === 'ready' && !e.claimId && e.currency === claim.currency,
+  // Every imported expense not yet in a claim. Ready and needs-review ones
+  // in the claim's currency can be added now (submitting still waits until
+  // all are reviewed); the rest are listed with what they are waiting for.
+  const unclaimed = expenses.filter(
+    (e) => !e.claimId && !['submitted', 'archived'].includes(e.status),
   );
+  const available = unclaimed.filter(
+    (e) => ['ready', 'needs_review'].includes(e.status) && e.currency === claim.currency,
+  );
+  const unavailable = unclaimed.filter((e) => !available.includes(e));
+  const pickedAvailable = available.filter((e) => picked.has(e.id));
+  function waitingFor(e: (typeof expenses)[number]) {
+    if (['draft', 'extracting'].includes(e.status)) return 'Still being read';
+    if (!e.currency) return 'No currency yet, so open it to review';
+    if (
+      settings.currencyConversionEnabled &&
+      claim.currency === settings.defaultCurrency &&
+      e.currency !== claim.currency
+    )
+      return `In ${e.currency}, waiting for an exchange rate (connect to the internet)`;
+    return `In ${e.currency}, but this claim is in ${claim.currency}`;
+  }
+  async function addExpenses(ids: string[]) {
+    await act(
+      () => api.addClaimExpenses(claim.id, ids),
+      `Added ${ids.length} expense${ids.length === 1 ? '' : 's'} to the claim.`,
+    );
+    setPicked(new Set());
+  }
   const exports = jobs.filter((j) => j.jobType === 'generate_pdf' && j.entityId === claim.id);
   const exporting = exports.some((j) => ['pending', 'running'].includes(j.status));
   async function transition(status: ClaimStatus) {
@@ -332,38 +374,99 @@ export function ClaimDetail() {
           }
         />
       </Panel>
-      {adding && draft && (
-        <Panel
-          title={`Ready expenses in ${claim.currency}`}
-          action={
-            <button className="text-button" onClick={() => setAdding(false)}>
-              Done
-            </button>
-          }
-        >
-          {available.length ? (
-            <ExpenseTable
-              expenses={available}
-              compact
-              actions={(e) => (
-                <button
-                  className="button secondary small"
-                  disabled={busy}
-                  onClick={() => void act(() => api.setClaimExpense(claim.id, e.id, true))}
-                >
-                  <Plus size={13} />
-                  Add
+      <AnimatePresence initial={false}>
+        {adding && draft && (
+          <motion.div key="adding" {...insertMotion}>
+            <Panel
+              title="Add from your imported receipts"
+              action={
+                <button className="text-button" onClick={() => setAdding(false)}>
+                  Done
                 </button>
+              }
+            >
+              {available.length ? (
+                <>
+                  <div className="selection-bar">
+                    <span>
+                      {pickedAvailable.length
+                        ? `${pickedAvailable.length} selected`
+                        : `${available.length} can be added`}
+                    </span>
+                    <button
+                      className="button primary small"
+                      disabled={busy || !pickedAvailable.length}
+                      onClick={() => void addExpenses(pickedAvailable.map((e) => e.id))}
+                    >
+                      <Plus size={13} />
+                      Add selected
+                    </button>
+                    <button
+                      className="button secondary small"
+                      disabled={busy}
+                      onClick={() => void addExpenses(available.map((e) => e.id))}
+                    >
+                      Add all {available.length}
+                    </button>
+                    {pickedAvailable.some((e) => e.status === 'needs_review') && (
+                      <span className="muted">
+                        Expenses that need review can be added now; review them before submitting.
+                      </span>
+                    )}
+                  </div>
+                  <ExpenseTable
+                    expenses={available}
+                    compact
+                    selection={{
+                      selected: picked,
+                      onToggle: (id) =>
+                        setPicked((old) => {
+                          const next = new Set(old);
+                          if (next.has(id)) next.delete(id);
+                          else next.add(id);
+                          return next;
+                        }),
+                      onToggleAll: (checked) =>
+                        setPicked(checked ? new Set(available.map((e) => e.id)) : new Set()),
+                    }}
+                    actions={(e) => (
+                      <button
+                        className="button secondary small"
+                        disabled={busy}
+                        onClick={() => void addExpenses([e.id])}
+                      >
+                        <Plus size={13} />
+                        Add
+                      </button>
+                    )}
+                  />
+                </>
+              ) : (
+                <div className="quiet-empty">
+                  No unclaimed receipts in {claim.currency} yet.{' '}
+                  <Link to="/import">Import receipts</Link> to add them here.
+                </div>
               )}
-            />
-          ) : (
-            <div className="quiet-empty">
-              No unclaimed, ready expenses in {claim.currency}.{' '}
-              <Link to="/expenses">Review your expenses</Link> to add them here.
-            </div>
-          )}
-        </Panel>
-      )}
+              {unavailable.length > 0 && (
+                <div className="unavailable-list">
+                  <h3>Not available yet</h3>
+                  {unavailable.map((e) => (
+                    <div className="job-row" key={e.id}>
+                      <div>
+                        <Link to={`/expenses/${e.id}`}>
+                          {e.merchantName || e.receiptFilename || 'Untitled expense'}
+                        </Link>
+                        <small>{waitingFor(e)}</small>
+                      </div>
+                      <StatusBadge status={e.status} />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Panel>
+          </motion.div>
+        )}
+      </AnimatePresence>
       <Panel
         title="Generated reports"
         action={
@@ -373,35 +476,40 @@ export function ClaimDetail() {
         }
       >
         {exports.length ? (
-          exports.map((j) => (
-            <div className="job-row" key={j.id}>
-              <FileText size={20} />
-              <div>
-                <strong>Claim report · {dateLabel(j.createdAt)}</strong>
-                <small>
-                  {j.status === 'completed'
-                    ? 'Saved locally · snapshot of claim at export time'
-                    : j.lastError || 'Preparing your report and receipt appendix'}
-                </small>
-              </div>
-              <StatusBadge status={j.status} />
-              {j.status === 'completed' && (
-                <button
-                  className="button secondary small"
-                  onClick={() =>
-                    void api.openExport(j.id).catch((e) => notify(errorMessage(e), true))
-                  }
-                >
-                  Open PDF <ArrowUpRight size={13} />
-                </button>
-              )}
-              {j.status === 'failed' && (
-                <button className="text-button" onClick={() => void act(() => api.retryJob(j.id))}>
-                  Retry
-                </button>
-              )}
-            </div>
-          ))
+          <AnimatePresence initial={false}>
+            {exports.map((j, i) => (
+              <motion.div className="job-row" key={j.id} {...listItem(i)}>
+                <FileText size={20} />
+                <div>
+                  <strong>Claim report · {dateLabel(j.createdAt)}</strong>
+                  <small>
+                    {j.status === 'completed'
+                      ? 'Saved locally · snapshot of claim at export time'
+                      : j.lastError || 'Preparing your report and receipt appendix'}
+                  </small>
+                </div>
+                <StatusBadge status={j.status} />
+                {j.status === 'completed' && (
+                  <button
+                    className="button secondary small"
+                    onClick={() =>
+                      void api.openExport(j.id).catch((e) => notify(errorMessage(e), true))
+                    }
+                  >
+                    Open PDF <ArrowUpRight size={13} />
+                  </button>
+                )}
+                {j.status === 'failed' && (
+                  <button
+                    className="text-button"
+                    onClick={() => void act(() => api.retryJob(j.id))}
+                  >
+                    Retry
+                  </button>
+                )}
+              </motion.div>
+            ))}
+          </AnimatePresence>
         ) : (
           <div className="quiet-empty">
             Export a PDF to create a report with receipt references

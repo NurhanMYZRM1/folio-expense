@@ -16,6 +16,8 @@ import { PageHeader, Panel, TextLink, StatusBadge } from '../../components/ui';
 import { ExpenseTable } from '../../components/ExpenseTable';
 import { CURRENCIES, formatMoney, sumMinor } from '../../lib/money';
 import { CATEGORIES, CATEGORY_COLORS, dateLabel } from '../../lib/constants';
+import { motion } from 'motion/react';
+import { Reveal, spring } from '../../components/motion';
 export function Dashboard() {
   const { expenses, claims, settings } = useWorkspace();
   const [currency, setCurrency] = useState(settings.defaultCurrency);
@@ -108,7 +110,7 @@ export function Dashboard() {
       </div>
       <div className="metrics-grid">
         {cards.map((c, i) => (
-          <section className={`metric metric-${i}`} key={c.label}>
+          <Reveal as="section" index={i} className={`metric metric-${i}`} key={c.label}>
             <div className="metric-top">
               <span>{c.label}</span>
               <c.icon size={17} />
@@ -122,7 +124,7 @@ export function Dashboard() {
                 </Link>
               )}
             </div>
-          </section>
+          </Reveal>
         ))}
       </div>
       {review.length > 0 ? (
@@ -179,7 +181,10 @@ export function Dashboard() {
               <div className="bar-column" key={m.label}>
                 <div
                   className={`chart-bar ${i === 5 ? 'current' : ''}`}
-                  style={{ height: `${m.value ? Math.max(4, (m.value / max) * 100) : 2}%` }}
+                  style={{
+                    height: `${m.value ? Math.max(4, (m.value / max) * 100) : 2}%`,
+                    animationDelay: `${120 + i * 50}ms`,
+                  }}
                   title={formatMoney(m.value, currency)}
                 />
                 <span>{m.label}</span>
@@ -191,11 +196,18 @@ export function Dashboard() {
           {categories.length ? (
             <>
               <div className="category-stack">
-                {categories.map((c) => (
-                  <span
+                {categories.map((c, i) => (
+                  <motion.span
                     key={c.name}
                     title={c.name}
-                    style={{ width: `${(c.value / monthTotal) * 100}%`, background: c.color }}
+                    style={{
+                      width: `${(c.value / monthTotal) * 100}%`,
+                      background: c.color,
+                      transformOrigin: 'left',
+                    }}
+                    initial={{ scaleX: 0 }}
+                    animate={{ scaleX: 1 }}
+                    transition={{ ...spring.smooth, delay: 0.15 + i * 0.05 }}
                   />
                 ))}
               </div>

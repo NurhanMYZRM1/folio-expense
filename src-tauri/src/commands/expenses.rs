@@ -22,3 +22,11 @@ pub(super) async fn edit_expense(s: Service<'_>, edit: ExpenseEdit) -> Result<Ex
 pub(super) async fn queue_extraction(s: Service<'_>, id: String) -> Result<()> {
     blocking(s, move |s| s.queue_extraction(&id)).await
 }
+#[tauri::command]
+pub(super) async fn delete_expenses(s: Service<'_>, ids: Vec<String>) -> Result<u32> {
+    blocking(s, move |s| s.delete_expenses(ids)).await
+}
+#[tauri::command]
+pub(super) async fn convert_pending(s: Service<'_>) -> Result<u32> {
+    blocking(s, |s| s.convert_pending()).await
+}
