@@ -786,9 +786,10 @@ fn csv_export_formats_by_currency_exponent_dedupes_and_rejects_unknown_ids() {
     let bytes = fs::read(&export.path).unwrap();
     let text = String::from_utf8(bytes[3..].to_vec()).unwrap();
     // JPY 1,500 is converted at 0.029 to MYR 43.50; the receipt amount and
-    // rate are kept in the last columns, formatted with JPY's 0 decimals.
+    // rate are kept after the receipt columns, formatted with JPY's 0 decimals,
+    // followed by the (empty) personal name and organization.
     assert!(text.contains(",MYR,43.50,0.00,"));
-    assert!(text.contains(",JPY,1500,0.029,2026-09-27\r\n"));
+    assert!(text.contains(",JPY,1500,0.029,2026-09-27,,\r\n"));
     // BHD has no published rate, so it stays as printed (3 decimals).
     assert!(text.contains(",BHD,12.345,0.005,"));
     let dedup = s
@@ -796,6 +797,15 @@ fn csv_export_formats_by_currency_exponent_dedupes_and_rejects_unknown_ids() {
         .unwrap();
     assert_eq!(dedup.rows, 1);
     assert!(s.export_expenses_csv(vec![]).is_err());
+    let xlsx = s
+        .export_expenses_xlsx(vec![jpy_id.clone(), bhd_id.clone(), jpy_id.clone()])
+        .unwrap();
+    assert_eq!(xlsx.rows, 2);
+    assert!(xlsx.file_name.ends_with(".xlsx"));
+    let xlsx_bytes = fs::read(&xlsx.path).unwrap();
+    assert!(xlsx_bytes.starts_with(b"PK"));
+    assert_eq!(s.xlsx_export_path(&xlsx.id).unwrap(), xlsx.path);
+    assert!(s.export_expenses_xlsx(vec![]).is_err());
     let unknown = uuid::Uuid::new_v4().to_string();
     assert_eq!(
         s.export_expenses_csv(vec![unknown]).unwrap_err().code,
@@ -864,6 +874,15 @@ fn csv_export_copies_to_export_directory_and_reports_conflicts() {
         second_contents.contains("99.99"),
         "the second copy must contain the updated amount"
     );
+    let workbook = s.export_claim_xlsx(&claim.id).unwrap();
+    assert!(workbook.file_name.ends_with(".xlsx"));
+    let workbook_copy = export_dir.join(&workbook.file_name);
+    assert!(workbook_copy.exists());
+    assert!(fs::read(&workbook_copy).unwrap().starts_with(b"PK"));
+    assert_eq!(s.xlsx_export_path(&workbook.id).unwrap(), workbook.path);
+    let workbook2 = s.export_claim_xlsx(&claim.id).unwrap();
+    assert_ne!(workbook2.file_name, workbook.file_name);
+    assert!(workbook2.file_name.ends_with(" (2).xlsx"));
 }
 
 #[test]

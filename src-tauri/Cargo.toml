@@ -49,8 +49,10 @@ imagesize = "0.15"
 regex = "1"
 zeroize = "1"
 open = { version = "5", optional = true }
+rust_xlsxwriter = "0.90.0"
 [dev-dependencies]
 tempfile = "3"
+zip = { version = "4", default-features = false, features = ["deflate"] }
 
 # HEIC decoding, resizing and JPEG encoding are ~20x slower unoptimised; keep
 # `tauri dev` and test imports of phone photos quick.

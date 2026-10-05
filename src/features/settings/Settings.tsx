@@ -123,16 +123,16 @@ export function Settings() {
               </div>
               <div className="form-grid">
                 <label className="field">
-                  <span>Company name</span>
+                  <span>Organization or personal label</span>
                   <input
                     value={form.company}
                     maxLength={200}
-                    placeholder="Company / department"
+                    placeholder="Optional company, household, or project"
                     onChange={(e) => update('company', e.target.value)}
                   />
                 </label>
                 <label className="field">
-                  <span>Employee name</span>
+                  <span>Personal name</span>
                   <input
                     value={form.employee}
                     maxLength={200}
@@ -142,7 +142,8 @@ export function Settings() {
                 </label>
               </div>
               <p className="field-help">
-                Company and employee details appear on generated claim reports.
+                These details appear on generated claim reports. Use a company name, household
+                label, project, or just your personal name.
               </p>
             </div>
           </Panel>

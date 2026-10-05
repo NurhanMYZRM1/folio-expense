@@ -402,6 +402,16 @@ const TIME_PATTERN: &str = r"\b\d{1,2}:\d{2}\b";
 /// of these is the business name.
 const SUFFIX_PATTERN: &str = r"(?i)SDN\.?\s*BHD\.?|\bBHD\b|\bBERHAD\b|\bPLT\b|\bENTERPRISE\b|\bTRADING\b|\bRESTAURANT\b|\bRESTORAN\b|\bCAF[EÉ]\b|PTE\.?\s*LTD\.?|\bLTD\b|\bLIMITED\b|\bLLC\b|\bINC\b|\bCORP(ORATION)?\b|\bHOTEL\b|\bBAKERY\b|\bMART\b|\bSUPERMARKET\b|\bPHARMACY\b|\bFARMASI\b|\bKEDAI\b";
 
+/// Legal-entity suffixes only. A line carrying one is the registered company
+/// name, which a brand line printed above it should beat. Business-type words
+/// such as CAFE or RESTAURANT are deliberately excluded: they are part of
+/// brand names ("CAFE AMAZON").
+const REGISTERED_ENTITY_PATTERN: &str = r"(?i)SDN\.?\s*BHD\.?|\bBHD\b|\bBERHAD\b|\bPLT\b|PTE\.?\s*LTD\.?|\bLTD\b|\bLIMITED\b|\bLLC\b|\bINC\b";
+/// Staff, till and table labels printed near the header; never a merchant.
+const STAFF_LABEL_PATTERN: &str = r"(?i)^\s*(CASHIER|SERVER|STAFF|OPERATOR|WAITER|WAITRESS|TABLE|TERMINAL|POS|COUNTER|TILL|PAX|MEMBER|LOYALTY)\b";
+/// A currency code or symbol followed by digits: a price line, not a name.
+const CURRENCY_AMOUNT_PATTERN: &str = r"(?i)(?:RM|MYR|USD|SGD|EUR|GBP|AUD|CAD|CHF|CNY|HKD|INR|THB|IDR|JPY|KRW|KWD|OMR|US\$|S\$|Rp|[€£₹฿₩¥$])\s*\d";
+
 /// A company registration number in brackets at the end of a name line:
 /// `KAMAL ENTERPRISE (SA0123456-T)`, `ABC SDN BHD (Co. No. 123456-X)`.
 const TRAILING_REGISTRATION_PATTERN: &str =
@@ -603,6 +613,9 @@ impl LocalOcrExtractor {
         let boilerplate_re = re(BOILERPLATE_PATTERN)?;
         let suffix_re = re(SUFFIX_PATTERN)?;
         let registration_re = re(TRAILING_REGISTRATION_PATTERN)?;
+        let entity_re = re(REGISTERED_ENTITY_PATTERN)?;
+        let staff_re = re(STAFF_LABEL_PATTERN)?;
+        let currency_amount_re = re(CURRENCY_AMOUNT_PATTERN)?;
         let candidates: Vec<(usize, String)> = lines
             .iter()
             .take(8)
@@ -619,23 +632,37 @@ impl LocalOcrExtractor {
                     && !reg_re.is_match(line)
                     && !address_re.is_match(line)
                     && !boilerplate_re.is_match(line)
+                    && !currency_amount_re.is_match(line)
+                    && !staff_re.is_match(line)
             })
             .collect();
         let suffix_line = candidates.iter().find(|(_, line)| suffix_re.is_match(line));
-        let (merchant, merchant_confidence) = match suffix_line.or_else(|| candidates.first()) {
-            Some((index, line)) => {
-                let clean = is_clean_name(line);
-                let confidence = match (suffix_line.is_some(), clean) {
-                    (true, true) => 0.92,
-                    (true, false) => 0.75,
-                    // A clean name in the top three lines is the business name.
-                    (false, true) if *index < 3 => 0.9,
-                    (false, _) => 0.55,
-                };
-                (Some(line.chars().take(300).collect::<String>()), confidence)
-            }
-            None => (None, 0.0),
-        };
+        // A clean brand name printed above the registered company line
+        // (`KOPI KENANGAN` over `ABC FOOD SDN BHD`) is what people call the shop.
+        let brand_line = suffix_line
+            .filter(|(_, line)| entity_re.is_match(line))
+            .and_then(|(entity_index, _)| {
+                candidates.iter().find(|(index, line)| {
+                    index < entity_index && !entity_re.is_match(line) && is_clean_name(line)
+                })
+            });
+        let (merchant, merchant_confidence) =
+            match brand_line.or(suffix_line).or_else(|| candidates.first()) {
+                Some((index, line)) => {
+                    let clean = is_clean_name(line);
+                    let confidence = match (suffix_line.is_some(), clean) {
+                        // A brand over its registered company: two lines agree on the business.
+                        _ if brand_line.is_some() => 0.92,
+                        (true, true) => 0.92,
+                        (true, false) => 0.75,
+                        // A clean name in the top three lines is the business name.
+                        (false, true) if *index < 3 => 0.9,
+                        (false, _) => 0.55,
+                    };
+                    (Some(line.chars().take(300).collect::<String>()), confidence)
+                }
+                None => (None, 0.0),
+            };
 
         let (category, category_confidence) =
             suggest_category(merchant.as_deref(), input.raw_text)?;
@@ -1098,6 +1125,59 @@ TOTAL RM 10.00
 CASH 10.00";
         let out = run(text, "MYR");
         assert_eq!(out.tax_amount_minor, None);
+        assert_eq!(out.total_amount_minor, Some(1000));
+    }
+
+    #[test]
+    fn brand_line_beats_registered_company_suffix_when_both_are_printed() {
+        let text = "\
+KOPI KENANGAN
+ABC FOOD SDN BHD
+TAX INVOICE
+27/09/2026 08:15
+TOTAL RM13.25";
+        let out = run(text, "MYR");
+        assert_eq!(out.merchant_name.as_deref(), Some("KOPI KENANGAN"));
+        assert_eq!(out.date.as_deref(), Some("2026-09-27"));
+        assert_eq!(out.currency.as_deref(), Some("MYR"));
+        assert_eq!(out.total_amount_minor, Some(1325));
+    }
+
+    #[test]
+    fn descriptor_merchant_is_not_displaced_by_a_later_staff_line() {
+        let text = "\
+CAFE AMAZON
+CASHIER JOHN
+27/09/2026 08:15
+TOTAL RM9.50";
+        let out = run(text, "MYR");
+        assert_eq!(out.merchant_name.as_deref(), Some("CAFE AMAZON"));
+    }
+
+    #[test]
+    fn staff_and_table_labels_above_the_company_are_never_the_merchant() {
+        let text = "\
+CASHIER JOHN
+TABLE 12
+ABC TRADING SDN BHD
+27/09/2026 08:15
+TOTAL RM9.50";
+        let out = run(text, "MYR");
+        assert_eq!(out.merchant_name.as_deref(), Some("ABC TRADING SDN BHD"));
+    }
+
+    #[test]
+    fn registered_company_line_is_used_when_no_separate_brand_line_exists() {
+        let text = "\
+ABC TRADING SDN BHD
+RECEIPT
+27 Sep 2026
+Item RM10.00
+TOTAL RM10.00";
+        let out = run(text, "MYR");
+        assert_eq!(out.merchant_name.as_deref(), Some("ABC TRADING SDN BHD"));
+        assert_eq!(out.date.as_deref(), Some("2026-09-27"));
+        assert_eq!(out.currency.as_deref(), Some("MYR"));
         assert_eq!(out.total_amount_minor, Some(1000));
     }
 }

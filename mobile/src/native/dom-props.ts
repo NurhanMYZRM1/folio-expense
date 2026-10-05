@@ -35,7 +35,12 @@ function remember(command: string, args: string, response: string) {
   if (command === "get_claim") {
     const claim = (result as { claim: { id: string; claimNumber: string } }).claim;
     claimNumbers.set(claim.id, claim.claimNumber);
-  } else if (command === "export_claim_csv" || command === "export_expenses_csv") {
+  } else if (
+    command === "export_claim_csv" ||
+    command === "export_expenses_csv" ||
+    command === "export_claim_xlsx" ||
+    command === "export_expenses_xlsx"
+  ) {
     const csv = result as { id: string; fileName: string };
     exportNames.set(csv.id, csv.fileName);
   } else if (command === "request_pdf" && typeof result === "string") {
@@ -44,11 +49,11 @@ function remember(command: string, args: string, response: string) {
   }
 }
 
-/** Generated reports and CSVs open in the share sheet (Files, Mail, Print…). */
+/** Generated reports, CSVs and Excel workbooks open in the share sheet (Files, Mail, Print…). */
 async function invoke(command: string, args: string): Promise<string> {
   const response = await invokeRaw(command, args);
   if (response.startsWith('{"error"')) return response;
-  if (command === "open_export" || command === "open_csv_export") {
+  if (command === "open_export" || command === "open_csv_export" || command === "open_xlsx_export") {
     const path = (JSON.parse(response) as { result?: string }).result;
     const id = (JSON.parse(args) as { id?: string }).id ?? "";
     if (path) await share(path, exportNames.get(id) ?? (command === "open_export" ? "Folio claim report.pdf" : undefined));

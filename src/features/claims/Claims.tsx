@@ -159,7 +159,9 @@ export function ClaimDetail() {
     [adding, setAdding] = useState(false),
     [picked, setPicked] = useState<Set<string>>(new Set()),
     [csvBusy, setCsvBusy] = useState(false),
-    [csvExport, setCsvExport] = useState<CsvExport | null>(null);
+    [xlsxBusy, setXlsxBusy] = useState(false),
+    [csvExport, setCsvExport] = useState<CsvExport | null>(null),
+    [xlsxExport, setXlsxExport] = useState<CsvExport | null>(null);
   async function load() {
     if (!id) return;
     try {
@@ -241,6 +243,18 @@ export function ClaimDetail() {
       setCsvBusy(false);
     }
   }
+  async function exportXlsx() {
+    setXlsxBusy(true);
+    try {
+      const workbook = await api.exportClaimXlsx(claim.id);
+      setXlsxExport(workbook);
+      notify(`Saved ${workbook.fileName}.`);
+    } catch (e) {
+      notify(errorMessage(e), true);
+    } finally {
+      setXlsxBusy(false);
+    }
+  }
   return (
     <>
       <Link className="back-link" to="/claims">
@@ -269,11 +283,19 @@ export function ClaimDetail() {
             </button>
             <button
               className="button secondary"
-              disabled={busy || csvBusy || !claim.expenseCount}
+              disabled={busy || csvBusy || xlsxBusy || !claim.expenseCount}
               onClick={() => void exportCsv()}
             >
               <FileSpreadsheet size={16} />
               {csvBusy ? 'Exporting CSV…' : 'Export CSV'}
+            </button>
+            <button
+              className="button secondary"
+              disabled={busy || csvBusy || xlsxBusy || !claim.expenseCount}
+              onClick={() => void exportXlsx()}
+            >
+              <FileSpreadsheet size={16} />
+              {xlsxBusy ? 'Exporting Excel…' : 'Export Excel'}
             </button>
             {csvExport && (
               <span className="inline-export-note">
@@ -285,6 +307,21 @@ export function ClaimDetail() {
                   }
                 >
                   Open CSV
+                </button>
+              </span>
+            )}
+            {xlsxExport && (
+              <span className="inline-export-note">
+                Saved {xlsxExport.fileName} ·{' '}
+                <button
+                  className="text-button"
+                  onClick={() =>
+                    void api
+                      .openXlsxExport(xlsxExport.id)
+                      .catch((e) => notify(errorMessage(e), true))
+                  }
+                >
+                  Open Excel
                 </button>
               </span>
             )}

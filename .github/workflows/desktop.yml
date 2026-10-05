@@ -13,6 +13,18 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      # Fails on any known vulnerability in the Rust dependency tree.
+      # Informational warnings (unmaintained/unsound) are reported but do not
+      # fail the build; today they come only from Tauri's Linux GTK stack,
+      # which the macOS and Windows bundles do not ship.
+      - run: cargo audit --file src-tauri/Cargo.lock
   verify:
     strategy:
       fail-fast: false

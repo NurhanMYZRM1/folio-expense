@@ -4,6 +4,7 @@ use crate::{
     error::{AppError, Result},
     repository::{self, claim_repository as claims, expense_repository as expenses},
 };
+use rust_xlsxwriter::Workbook;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
@@ -19,7 +20,7 @@ pub struct CsvExport {
     pub path: String,
     pub rows: u32,
 }
-const HEADER: [&str; 18] = [
+const HEADER: [&str; 20] = [
     "Claim Number",
     "Claim Title",
     "Receipt Ref",
@@ -38,6 +39,8 @@ const HEADER: [&str; 18] = [
     "Original Amount",
     "Exchange Rate",
     "Rate Date",
+    "Personal Name",
+    "Organization",
 ];
 struct CsvRow {
     claim_number: String,
@@ -59,6 +62,8 @@ struct CsvRow {
     original_amount_minor: Option<i64>,
     exchange_rate: String,
     rate_date: String,
+    personal_name: String,
+    organization: String,
 }
 /// Prefixes a cell with `'` when it starts with a character a spreadsheet would
 /// treat as the start of a formula, per the CSV export's formula-injection guard.
@@ -113,8 +118,8 @@ fn export_candidate_name(file_name: &str, n: u32) -> String {
     if n <= 1 {
         return file_name.to_string();
     }
-    match file_name.strip_suffix(".csv") {
-        Some(stem) => format!("{stem} ({n}).csv"),
+    match file_name.rfind('.') {
+        Some(dot) => format!("{} ({n}){}", &file_name[..dot], &file_name[dot..]),
         None => format!("{file_name} ({n})"),
     }
 }
@@ -147,14 +152,119 @@ fn render(rows: &[CsvRow]) -> Vec<u8> {
             money_cell(r.original_amount_minor, &r.original_currency),
             text_cell(&r.exchange_rate),
             text_cell(&r.rate_date),
+            text_cell(&r.personal_name),
+            text_cell(&r.organization),
         ];
         out.extend_from_slice(cells.join(",").as_bytes());
         out.extend_from_slice(b"\r\n");
     }
     out
 }
+/// A workbook cell: text is always stored as a string (never a formula), and
+/// money as a number scaled by its currency's exponent; a missing amount is blank.
+enum XlsxCell<'a> {
+    Text(&'a str),
+    Money(Option<i64>, &'a str),
+}
+fn render_xlsx(rows: &[CsvRow]) -> Result<Vec<u8>> {
+    let mut workbook = Workbook::new();
+    let worksheet = workbook.add_worksheet();
+    worksheet
+        .set_name("Expenses")
+        .map_err(|_| AppError::new("ExportError", "Unable to create the Excel workbook."))?;
+    for (col, header) in HEADER.iter().enumerate() {
+        worksheet
+            .write_string(0, col as u16, *header)
+            .map_err(|_| AppError::new("ExportError", "Unable to create the Excel workbook."))?;
+    }
+    let failed = |_| AppError::new("ExportError", "Unable to create the Excel workbook.");
+    for (idx, r) in rows.iter().enumerate() {
+        let row = (idx + 1) as u32;
+        // Same columns and order as `render`, so the CSV and workbook match HEADER.
+        let cells: [XlsxCell; 20] = [
+            XlsxCell::Text(&r.claim_number),
+            XlsxCell::Text(&r.claim_title),
+            XlsxCell::Text(&r.receipt_ref),
+            XlsxCell::Text(&r.date),
+            XlsxCell::Text(&r.merchant),
+            XlsxCell::Text(&r.premises),
+            XlsxCell::Text(&r.category),
+            XlsxCell::Text(&r.description),
+            XlsxCell::Text(&r.currency),
+            XlsxCell::Money(r.amount_minor, &r.currency),
+            XlsxCell::Money(r.tax_minor, &r.currency),
+            XlsxCell::Text(&r.status),
+            XlsxCell::Text(&r.receipt_file),
+            XlsxCell::Text(&r.expense_id),
+            XlsxCell::Text(&r.original_currency),
+            XlsxCell::Money(r.original_amount_minor, &r.original_currency),
+            XlsxCell::Text(&r.exchange_rate),
+            XlsxCell::Text(&r.rate_date),
+            XlsxCell::Text(&r.personal_name),
+            XlsxCell::Text(&r.organization),
+        ];
+        for (col, cell) in cells.iter().enumerate() {
+            let col = col as u16;
+            match *cell {
+                XlsxCell::Text(value) => {
+                    worksheet.write_string(row, col, value).map_err(failed)?;
+                }
+                XlsxCell::Money(Some(minor), currency) => {
+                    worksheet
+                        .write_number(row, col, money_number(minor, currency))
+                        .map_err(failed)?;
+                }
+                XlsxCell::Money(None, _) => {}
+            }
+        }
+    }
+    worksheet.autofit();
+    workbook
+        .save_to_buffer()
+        .map_err(|_| AppError::new("ExportError", "Unable to create the Excel workbook."))
+}
+fn money_number(minor: i64, currency: &str) -> f64 {
+    let exponent = currency_exponent(currency).unwrap_or(2);
+    if exponent == 0 {
+        minor as f64
+    } else {
+        minor as f64 / 10_i64.pow(exponent) as f64
+    }
+}
+/// Where and how each tabular export format is stored.
+struct TabularFormat {
+    dir: &'static str,
+    ext: &'static str,
+    audit_action: &'static str,
+    label: &'static str,
+}
+impl TabularFormat {
+    const CSV: Self = Self {
+        dir: "exports/csv",
+        ext: "csv",
+        audit_action: "csv.exported",
+        label: "CSV",
+    };
+    const XLSX: Self = Self {
+        dir: "exports/xlsx",
+        ext: "xlsx",
+        audit_action: "xlsx.exported",
+        label: "Excel file",
+    };
+}
 impl AppService {
-    pub fn export_claim_csv(&self, claim_id: &str) -> Result<CsvExport> {
+    /// Personal name and optional organization from Settings, stamped on every
+    /// exported row so a spreadsheet stands on its own for personal or
+    /// organizational use. Read before any DB lock is taken.
+    fn export_identity(&self) -> Result<(String, String)> {
+        let settings = self.settings()?;
+        Ok((
+            settings.employee.trim().to_string(),
+            settings.company.trim().to_string(),
+        ))
+    }
+    fn claim_rows(&self, claim_id: &str) -> Result<(Claim, Vec<CsvRow>)> {
+        let (personal_name, organization) = self.export_identity()?;
         let db = self.conn()?;
         let claim = claims::get(&db, claim_id)?;
         let members: Vec<_> = expenses::all(&db)?
@@ -162,7 +272,7 @@ impl AppService {
             .filter(|e| e.claim_id.as_deref() == Some(claim_id))
             .collect();
         drop(db);
-        let rows: Vec<CsvRow> = members
+        let rows = members
             .iter()
             .enumerate()
             .map(|(index, e)| CsvRow {
@@ -188,12 +298,13 @@ impl AppService {
                 original_amount_minor: e.original_total_amount_minor,
                 exchange_rate: e.exchange_rate.clone().unwrap_or_default(),
                 rate_date: e.exchange_rate_date.clone().unwrap_or_default(),
+                personal_name: personal_name.clone(),
+                organization: organization.clone(),
             })
             .collect();
-        let file_name = format!("Folio-{}.csv", claim.claim_number);
-        self.write_csv_export(&rows, file_name, Some(claim_id))
+        Ok((claim, rows))
     }
-    pub fn export_expenses_csv(&self, expense_ids: Vec<String>) -> Result<CsvExport> {
+    fn selected_expense_rows(&self, expense_ids: Vec<String>) -> Result<Vec<CsvRow>> {
         if expense_ids.is_empty() || expense_ids.len() > 5000 {
             return Err(AppError::invalid("Select 1 to 5000 expenses to export."));
         }
@@ -205,6 +316,7 @@ impl AppService {
                 unique.push(raw.clone());
             }
         }
+        let (personal_name, organization) = self.export_identity()?;
         let db = self.conn()?;
         let mut claim_cache: HashMap<String, Claim> = HashMap::new();
         let mut rows = Vec::with_capacity(unique.len());
@@ -240,11 +352,31 @@ impl AppService {
                 original_amount_minor: e.original_total_amount_minor,
                 exchange_rate: e.exchange_rate.clone().unwrap_or_default(),
                 rate_date: e.exchange_rate_date.clone().unwrap_or_default(),
+                personal_name: personal_name.clone(),
+                organization: organization.clone(),
             });
         }
-        drop(db);
+        Ok(rows)
+    }
+    pub fn export_claim_csv(&self, claim_id: &str) -> Result<CsvExport> {
+        let (claim, rows) = self.claim_rows(claim_id)?;
+        let file_name = format!("Folio-{}.csv", claim.claim_number);
+        self.write_csv_export(&rows, file_name, Some(claim_id))
+    }
+    pub fn export_expenses_csv(&self, expense_ids: Vec<String>) -> Result<CsvExport> {
+        let rows = self.selected_expense_rows(expense_ids)?;
         let file_name = format!("Folio-expenses-{}.csv", &now()[..10]);
         self.write_csv_export(&rows, file_name, None)
+    }
+    pub fn export_claim_xlsx(&self, claim_id: &str) -> Result<CsvExport> {
+        let (claim, rows) = self.claim_rows(claim_id)?;
+        let file_name = format!("Folio-{}.xlsx", claim.claim_number);
+        self.write_xlsx_export(&rows, file_name, Some(claim_id))
+    }
+    pub fn export_expenses_xlsx(&self, expense_ids: Vec<String>) -> Result<CsvExport> {
+        let rows = self.selected_expense_rows(expense_ids)?;
+        let file_name = format!("Folio-expenses-{}.xlsx", &now()[..10]);
+        self.write_xlsx_export(&rows, file_name, None)
     }
     fn write_csv_export(
         &self,
@@ -252,10 +384,44 @@ impl AppService {
         file_name: String,
         audit_entity: Option<&str>,
     ) -> Result<CsvExport> {
-        let bytes = render(rows);
+        self.write_tabular_export(
+            &TabularFormat::CSV,
+            render(rows),
+            rows.len(),
+            file_name,
+            audit_entity,
+        )
+    }
+    fn write_xlsx_export(
+        &self,
+        rows: &[CsvRow],
+        file_name: String,
+        audit_entity: Option<&str>,
+    ) -> Result<CsvExport> {
+        self.write_tabular_export(
+            &TabularFormat::XLSX,
+            render_xlsx(rows)?,
+            rows.len(),
+            file_name,
+            audit_entity,
+        )
+    }
+    /// Stores an export inside Folio's data directory (atomic temp + rename),
+    /// records an audit entry, then copies it to the user's export directory
+    /// with ` (n)` collision naming. Shared by CSV and Excel so their
+    /// storage, audit and copy behaviour cannot drift apart.
+    fn write_tabular_export(
+        &self,
+        format: &TabularFormat,
+        bytes: Vec<u8>,
+        row_count: usize,
+        file_name: String,
+        audit_entity: Option<&str>,
+    ) -> Result<CsvExport> {
         let export_id = id();
-        let relative = format!("exports/csv/{export_id}.csv");
-        let path = self.paths.resolve(&relative)?;
+        let path = self
+            .paths
+            .resolve(&format!("{}/{export_id}.{}", format.dir, format.ext))?;
         let temp = self.paths.resolve(&format!("cache/{export_id}.part"))?;
         {
             let mut f = fs::File::create(&temp)?;
@@ -270,9 +436,9 @@ impl AppService {
         let tx = db.transaction()?;
         repository::audit(
             &tx,
-            "csv.exported",
+            format.audit_action,
             audit_entity.unwrap_or(&export_id),
-            serde_json::json!({"exportId":export_id,"fileName":file_name,"rows":rows.len()}),
+            serde_json::json!({"exportId":export_id,"fileName":file_name,"rows":row_count}),
         )?;
         tx.commit()?;
         drop(db);
@@ -306,7 +472,14 @@ impl AppService {
             match written {
                 Some(name) => exported_file_name = name,
                 None => {
-                    return Err(AppError::new("ExportCopyError",format!("The CSV is saved in Folio, but could not be copied to the export directory. Local copy: {}",path.display())));
+                    return Err(AppError::new(
+                        "ExportCopyError",
+                        format!(
+                            "The {} is saved in Folio, but could not be copied to the export directory. Local copy: {}",
+                            format.label,
+                            path.display()
+                        ),
+                    ));
                 }
             }
         }
@@ -314,16 +487,24 @@ impl AppService {
             id: export_id,
             file_name: exported_file_name,
             path: path.to_string_lossy().to_string(),
-            rows: rows.len() as u32,
+            rows: row_count as u32,
         })
     }
-    pub fn csv_export_path(&self, id: &str) -> Result<String> {
+    fn tabular_export_path(&self, format: &TabularFormat, id: &str) -> Result<String> {
         uuid::Uuid::parse_str(id).map_err(|_| AppError::invalid("Invalid export ID."))?;
-        let path = self.paths.resolve(&format!("exports/csv/{id}.csv"))?;
+        let path = self
+            .paths
+            .resolve(&format!("{}/{id}.{}", format.dir, format.ext))?;
         if !path.exists() {
             return Err(AppError::not_found());
         }
         Ok(path.to_string_lossy().to_string())
+    }
+    pub fn csv_export_path(&self, id: &str) -> Result<String> {
+        self.tabular_export_path(&TabularFormat::CSV, id)
+    }
+    pub fn xlsx_export_path(&self, id: &str) -> Result<String> {
+        self.tabular_export_path(&TabularFormat::XLSX, id)
     }
 }
 #[cfg(test)]
@@ -355,6 +536,8 @@ mod tests {
             original_amount_minor: None,
             exchange_rate: String::new(),
             rate_date: String::new(),
+            personal_name: String::new(),
+            organization: String::new(),
         }
     }
     fn text(bytes: &[u8]) -> String {
@@ -376,8 +559,17 @@ mod tests {
         let first_line = s.split("\r\n").next().unwrap();
         assert_eq!(
             first_line,
-            "Claim Number,Claim Title,Receipt Ref,Date,Merchant,Premises,Category,Description,Currency,Amount,Tax,Status,Receipt File,Expense ID,Original Currency,Original Amount,Exchange Rate,Rate Date"
+            "Claim Number,Claim Title,Receipt Ref,Date,Merchant,Premises,Category,Description,Currency,Amount,Tax,Status,Receipt File,Expense ID,Original Currency,Original Amount,Exchange Rate,Rate Date,Personal Name,Organization"
         );
+    }
+    #[test]
+    fn personal_name_and_optional_organization_are_exported() {
+        let mut r = row("Cafe", "MYR", Some(100), None, "R001");
+        r.personal_name = "Nurhan".into();
+        let out = render(&[r]);
+        let s = text(&out[3..]);
+        let data = s.split("\r\n").nth(1).unwrap();
+        assert!(data.ends_with(",Nurhan,"), "row was: {data}");
     }
     #[test]
     fn commas_quotes_and_newlines_are_quoted_per_rfc4180() {
@@ -408,6 +600,82 @@ mod tests {
         let out = render(&[row("BHD shop", "BHD", Some(12345), Some(5), "R001")]);
         let s = text(&out[3..]);
         assert!(s.contains(",12.345,0.005,"));
+    }
+    #[test]
+    fn xlsx_render_creates_zip_workbook_with_rows() {
+        let out = render_xlsx(&[row("Cafe", "MYR", Some(8450), Some(478), "R001")]).unwrap();
+        assert!(out.starts_with(b"PK"));
+        assert!(out.len() > 1000);
+    }
+    fn xlsx_part(bytes: &[u8], name: &str) -> String {
+        use std::io::Read;
+        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+        let mut part = archive.by_name(name).unwrap();
+        let mut xml = String::new();
+        part.read_to_string(&mut xml).unwrap();
+        xml
+    }
+    #[test]
+    fn xlsx_stores_formula_like_text_as_strings_not_formulas() {
+        let hostile = [
+            "=SUM(A1:A9)",
+            "+cmd|' /C calc'!A0",
+            "-2+3",
+            "@HYPERLINK(\"x\")",
+        ];
+        let rows: Vec<CsvRow> = hostile
+            .iter()
+            .map(|m| {
+                let mut r = row(m, "MYR", Some(100), None, "R001");
+                r.description = (*m).to_string();
+                r
+            })
+            .collect();
+        let out = render_xlsx(&rows).unwrap();
+        let sheet = xlsx_part(&out, "xl/worksheets/sheet1.xml");
+        assert!(
+            !sheet.contains("<f>"),
+            "worksheet must contain no formula cells"
+        );
+        assert!(
+            !sheet.contains("<f "),
+            "worksheet must contain no formula cells"
+        );
+        let strings = xlsx_part(&out, "xl/sharedStrings.xml");
+        for h in ["=SUM(A1:A9)", "-2+3"] {
+            assert!(strings.contains(h), "{h} should be stored verbatim as text");
+        }
+    }
+    #[test]
+    fn xlsx_amounts_are_numeric_cells_scaled_by_currency_exponent() {
+        let out = render_xlsx(&[
+            row("Cafe", "MYR", Some(8450), None, "R001"),
+            row("Shop", "JPY", Some(1500), None, "R002"),
+            row("Souq", "BHD", Some(12345), None, "R003"),
+        ])
+        .unwrap();
+        let sheet = xlsx_part(&out, "xl/worksheets/sheet1.xml");
+        assert!(sheet.contains("<c r=\"J2\"><v>84.5</v></c>"), "{sheet}");
+        assert!(sheet.contains("<c r=\"J3\"><v>1500</v></c>"));
+        assert!(sheet.contains("<c r=\"J4\"><v>12.345</v></c>"));
+    }
+    #[test]
+    fn xlsx_columns_follow_the_header_including_converted_amounts() {
+        let mut r = row("Cafe", "MYR", Some(4206), None, "R001");
+        r.original_currency = "USD".into();
+        r.original_amount_minor = Some(999);
+        r.organization = "Acme".into();
+        let out = render_xlsx(&[r]).unwrap();
+        let sheet = xlsx_part(&out, "xl/worksheets/sheet1.xml");
+        let strings = xlsx_part(&out, "xl/sharedStrings.xml");
+        // HEADER[9] is Amount (column J), HEADER[15] is Original Amount (column P).
+        assert_eq!(HEADER[9], "Amount");
+        assert_eq!(HEADER[15], "Original Amount");
+        assert!(sheet.contains("<c r=\"J2\"><v>42.06</v></c>"), "{sheet}");
+        assert!(sheet.contains("<c r=\"P2\"><v>9.99</v></c>"), "{sheet}");
+        // The last column (T) holds the organization text.
+        assert!(sheet.contains("<c r=\"T2\" t=\"s\">"), "{sheet}");
+        assert!(strings.contains("Acme"));
     }
     #[test]
     fn missing_amount_renders_blank_cell() {

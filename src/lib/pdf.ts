@@ -148,14 +148,18 @@ export async function generateClaimPdf(
   }
   newPage('EXPENSE CLAIM');
   text(
-    shorten(snapshot.company || 'Company / department: __________________', width - margin * 2, 10),
+    shorten(
+      snapshot.company || 'Organization / personal context: __________________',
+      width - margin * 2,
+      10,
+    ),
     margin,
     y,
     10,
   );
   y -= 20;
   text(
-    shorten(`Employee: ${snapshot.employee || '__________________'}`, width - margin * 2, 10),
+    shorten(`Name: ${snapshot.employee || '__________________'}`, width - margin * 2, 10),
     margin,
     y,
     10,

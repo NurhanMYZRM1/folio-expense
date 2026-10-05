@@ -20,6 +20,7 @@ impl AppPaths {
             "receipts",
             "exports/claims",
             "exports/csv",
+            "exports/xlsx",
             "cache",
             "logs",
         ] {
