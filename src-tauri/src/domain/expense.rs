@@ -117,11 +117,42 @@ pub fn currency_exponent(currency: &str) -> Result<u32> {
         _ => Err(AppError::invalid("Select a supported currency.")),
     }
 }
+/// Resolves commas before parsing. `1,234` / `1,234.50` use commas as
+/// thousands separators (every group after the first is exactly 3 digits).
+/// A single comma followed by 1..=exponent digits and no dot, as in the
+/// EUR-style `12,50`, is a decimal comma. Anything else with commas is
+/// ambiguous and rejected rather than silently misread.
+fn normalize_separators(input: &str, exponent: u32) -> Result<String> {
+    if !input.contains(',') {
+        return Ok(input.to_string());
+    }
+    let (int_part, frac_part) = match input.split_once('.') {
+        Some((i, f)) => (i, Some(f)),
+        None => (input, None),
+    };
+    let groups: Vec<&str> = int_part.split(',').collect();
+    let thousands =
+        !groups[0].is_empty() && groups[0].len() <= 3 && groups[1..].iter().all(|g| g.len() == 3);
+    if thousands {
+        let joined = groups.concat();
+        return Ok(match frac_part {
+            Some(f) => format!("{joined}.{f}"),
+            None => joined,
+        });
+    }
+    if frac_part.is_none() && groups.len() == 2 {
+        let decimals = groups[1].len();
+        if (1..=exponent as usize).contains(&decimals) {
+            return Ok(format!("{}.{}", groups[0], groups[1]));
+        }
+    }
+    Err(AppError::invalid("Invalid amount."))
+}
 pub fn parse_money(input: &str, exponent: u32) -> Result<i64> {
     if exponent > 3 {
         return Err(AppError::invalid("Unsupported currency precision."));
     }
-    let clean = input.trim().replace(',', "");
+    let clean = normalize_separators(input.trim(), exponent)?;
     let parts: Vec<_> = clean.split('.').collect();
     if parts.is_empty()
         || parts.len() > 2

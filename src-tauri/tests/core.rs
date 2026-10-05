@@ -149,6 +149,14 @@ fn money_is_exact_and_currency_aware() {
     assert!(parse_money("-1", 2).is_err());
     assert!(parse_money("9e12", 2).is_err());
     assert!(parse_money("10000000000", 2).is_err());
+    // Thousands separators and decimal commas (EUR-style receipts).
+    assert_eq!(parse_money("1,234.50", 2).unwrap(), 123450);
+    assert_eq!(parse_money("1,234", 2).unwrap(), 123400);
+    assert_eq!(parse_money("12,50", 2).unwrap(), 1250);
+    assert_eq!(parse_money("12,5", 2).unwrap(), 1250);
+    assert!(parse_money("12,50", 0).is_err());
+    assert!(parse_money("1,23,4", 2).is_err());
+    assert!(parse_money("12,345,67", 2).is_err());
     assert_eq!(currency_exponent("JPY").unwrap(), 0);
 }
 #[test]
@@ -429,6 +437,146 @@ fn online_extraction_with_tax_over_total_completes_instead_of_failing_the_job() 
     assert_eq!(e.total_amount_minor, Some(5000));
     assert_eq!(e.currency.as_deref(), Some("MYR"));
     assert_eq!(e.tax_amount_minor, None);
+}
+fn extraction(v: serde_json::Value) -> Extraction {
+    serde_json::from_value(v).unwrap()
+}
+fn manual_only(s: &AppService, id: &str, f: impl FnOnce(&mut ExpenseEdit)) {
+    let e = s.expense(id).unwrap();
+    let mut change = ExpenseEdit {
+        id: id.into(),
+        version: e.version,
+        occurred_at: None,
+        merchant_name: None,
+        premises: None,
+        total_amount_minor: None,
+        tax_amount_minor: None,
+        currency: None,
+        category: "Other".into(),
+        description: String::new(),
+        mark_ready: false,
+    };
+    f(&mut change);
+    s.edit_expense(change).unwrap();
+}
+#[test]
+fn reextracting_a_claimed_ready_expense_converts_to_the_claim_currency_and_needs_review() {
+    let (t, s) = workspace();
+    let id = import(&t, &s);
+    let j = extraction_job(&s);
+    s.complete_extraction(&j.job.id, &j.token, result(), FieldSource::OnlineAi, None)
+        .unwrap();
+    assert_eq!(s.expense(&id).unwrap().status, ExpenseStatus::Ready);
+    let claim = s.create_claim("C".into(), "MYR".into()).unwrap();
+    s.set_claim_expense(&claim.id, &id, true).unwrap();
+    s.queue_extraction(&id).unwrap();
+    let j = extraction_job(&s);
+    let low = extraction(
+        serde_json::json!({"merchantName":"Other","date":"2026-09-20","totalAmountMinor":999,"taxAmountMinor":null,"currency":"USD","suggestedCategory":"Meals","confidence":{"merchantName":0.1,"date":0.1,"total":0.1,"tax":0.0,"currency":0.1,"category":0.1}}),
+    );
+    s.complete_extraction(&j.job.id, &j.token, low, FieldSource::LocalOcr, None)
+        .unwrap();
+    let e = s.expense(&id).unwrap();
+    assert_eq!(
+        e.currency.as_deref(),
+        Some("MYR"),
+        "claim currency is fixed"
+    );
+    // A USD receipt never lands in a MYR claim as-is: it is converted.
+    assert_eq!(e.original_currency.as_deref(), Some("USD"));
+    assert_eq!(e.original_total_amount_minor, Some(999));
+    assert_eq!(e.total_amount_minor, Some(4206));
+    assert_eq!(
+        e.status,
+        ExpenseStatus::NeedsReview,
+        "changed low-confidence values need review"
+    );
+    assert_eq!(s.claim(&claim.id).unwrap().claim.total_amount_minor, 4206);
+    assert!(s
+        .transition_claim(&claim.id, ClaimStatus::Submitted)
+        .is_err());
+}
+#[test]
+fn reextraction_with_identical_values_keeps_a_ready_expense_ready() {
+    let (t, s) = workspace();
+    let id = import(&t, &s);
+    let j = extraction_job(&s);
+    s.complete_extraction(&j.job.id, &j.token, result(), FieldSource::OnlineAi, None)
+        .unwrap();
+    s.queue_extraction(&id).unwrap();
+    let j = extraction_job(&s);
+    s.complete_extraction(&j.job.id, &j.token, result(), FieldSource::OnlineAi, None)
+        .unwrap();
+    assert_eq!(s.expense(&id).unwrap().status, ExpenseStatus::Ready);
+}
+#[test]
+fn manual_currency_rejects_amounts_extracted_in_another_currency() {
+    let (t, s) = workspace();
+    let id = import(&t, &s);
+    let j = extraction_job(&s);
+    manual_only(&s, &id, |c| c.currency = Some("JPY".into()));
+    // RM 50.00 arrives as 5000 minor units at exponent 2; as JPY that is ¥5,000.
+    s.complete_extraction(&j.job.id, &j.token, result(), FieldSource::OnlineAi, None)
+        .unwrap();
+    let e = s.expense(&id).unwrap();
+    assert_eq!(e.currency.as_deref(), Some("JPY"));
+    assert_eq!(e.total_amount_minor, None);
+    assert_eq!(e.tax_amount_minor, None);
+    assert_eq!(
+        e.merchant_name.as_deref(),
+        Some("OCR merchant"),
+        "other fields still merge"
+    );
+    assert_eq!(e.status, ExpenseStatus::NeedsReview);
+}
+#[test]
+fn manual_total_below_extracted_tax_keeps_the_rest_of_the_extraction() {
+    let (t, s) = workspace();
+    let id = import(&t, &s);
+    let j = extraction_job(&s);
+    manual_only(&s, &id, |c| c.total_amount_minor = Some(100));
+    s.complete_extraction(&j.job.id, &j.token, result(), FieldSource::OnlineAi, None)
+        .unwrap();
+    let e = s.expense(&id).unwrap();
+    assert_eq!(e.total_amount_minor, Some(100));
+    assert_eq!(
+        e.tax_amount_minor, None,
+        "extracted tax above the manual total is dropped"
+    );
+    assert_eq!(e.merchant_name.as_deref(), Some("OCR merchant"));
+    assert_eq!(e.occurred_at.as_deref(), Some("2026-09-27"));
+    assert_eq!(e.status, ExpenseStatus::NeedsReview);
+}
+#[test]
+fn manual_tax_above_extracted_total_keeps_the_rest_of_the_extraction() {
+    let (t, s) = workspace();
+    let id = import(&t, &s);
+    let j = extraction_job(&s);
+    manual_only(&s, &id, |c| c.tax_amount_minor = Some(300));
+    let small = extraction(
+        serde_json::json!({"merchantName":"OCR merchant","date":"2026-09-27","totalAmountMinor":200,"taxAmountMinor":null,"currency":"MYR","suggestedCategory":"Meals","confidence":{"merchantName":0.98,"date":0.99,"total":0.99,"tax":0.0,"currency":0.99,"category":0.9}}),
+    );
+    s.complete_extraction(&j.job.id, &j.token, small, FieldSource::OnlineAi, None)
+        .unwrap();
+    let e = s.expense(&id).unwrap();
+    assert_eq!(e.tax_amount_minor, Some(300));
+    assert_eq!(
+        e.total_amount_minor, None,
+        "extracted total below the manual tax is dropped"
+    );
+    assert_eq!(e.merchant_name.as_deref(), Some("OCR merchant"));
+    assert_eq!(e.status, ExpenseStatus::NeedsReview);
+}
+#[test]
+fn removing_an_expense_that_is_not_in_the_claim_is_rejected_without_side_effects() {
+    let (t, s) = workspace();
+    let id = import(&t, &s);
+    let claim = s.create_claim("C".into(), "MYR".into()).unwrap();
+    let expense_version = s.expense(&id).unwrap().version;
+    let claim_version = s.claim(&claim.id).unwrap().claim.version;
+    assert!(s.set_claim_expense(&claim.id, &id, false).is_err());
+    assert_eq!(s.expense(&id).unwrap().version, expense_version);
+    assert_eq!(s.claim(&claim.id).unwrap().claim.version, claim_version);
 }
 #[test]
 fn stale_edits_fail_without_losing_updates() {
