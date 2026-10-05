@@ -1,10 +1,17 @@
 name: Desktop verification
 on:
+  # Branch pushes are already verified through their pull request, so only
+  # main runs on push. This stops every PR commit from running twice.
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 permissions:
   contents: read
+# A newer push to the same branch or PR cancels the run it replaces.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   verify:
     strategy:
@@ -49,12 +56,22 @@ jobs:
       - run: npm run test:e2e
       - name: Build unsigned evaluation installers
         run: npm run tauri -- build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+      # Installers are large, so they are kept only for main and manual runs,
+      # and only for a week. Artifact storage has a quota; a failed upload
+      # must not turn an otherwise green verification red.
       - uses: actions/upload-artifact@v7
+        if: github.event_name != 'pull_request'
+        continue-on-error: true
         with:
           name: folio-${{ matrix.target }}
           path: src-tauri/target/${{ matrix.target }}/release/bundle/
+          retention-days: 7
+      # Test traces are only useful for debugging a failure.
       - uses: actions/upload-artifact@v7
-        if: always()
+        if: failure()
+        continue-on-error: true
         with:
           name: verification-${{ matrix.target }}
           path: test-results/
+          retention-days: 7
+          if-no-files-found: ignore

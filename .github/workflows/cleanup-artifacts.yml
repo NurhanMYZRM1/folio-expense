@@ -1,0 +1,22 @@
+name: Delete stored artifacts
+# Run by hand from the Actions tab to free artifact storage quota.
+# Deletes every artifact this repository has stored; new runs make fresh ones.
+on:
+  workflow_dispatch:
+permissions:
+  actions: write
+jobs:
+  delete:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete all artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ids=$(gh api --paginate "repos/${{ github.repository }}/actions/artifacts" -q '.artifacts[].id')
+          count=0
+          for id in $ids; do
+            gh api -X DELETE "repos/${{ github.repository }}/actions/artifacts/$id"
+            count=$((count + 1))
+          done
+          echo "Deleted $count artifacts."
