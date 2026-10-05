@@ -1,7 +1,7 @@
 use crate::{
     domain::{
         claim::ExportSnapshot,
-        expense::{validate_values, ExpenseEdit, ExpenseStatus},
+        expense::{validate_values, Expense, ExpenseEdit, ExpenseStatus},
         extraction::{Extraction, FieldMeta, FieldSource, Job, JobLease},
         id, now,
     },
@@ -267,13 +267,36 @@ impl AppService {
         // Extraction reads the receipt's own amounts; conversion is re-derived below.
         let before = e.clone();
         e.clear_conversion();
+        let (_, before_total, before_tax) = before.receipt_amounts();
+        let is_manual = |e: &Expense, key: &str| {
+            e.field_meta
+                .get(key)
+                .is_some_and(|m| m.source == FieldSource::Manual)
+        };
+        // Amounts only mean something together with their currency's exponent.
+        // A manually set receipt currency always wins, so extracted amounts in
+        // another currency are not merged. A claim's currency is enforced after
+        // conversion by `check_claim_currency`.
+        let pinned_currency = is_manual(&e, "currency")
+            .then(|| e.currency.clone())
+            .flatten();
+        let amounts_compatible = match (&pinned_currency, &result.currency) {
+            (Some(pinned), Some(extracted)) => pinned == extracted,
+            (Some(_), None) => false,
+            (None, _) => true,
+        };
+        let (extracted_total, extracted_tax) = if amounts_compatible {
+            (result.total_amount_minor, result.tax_amount_minor)
+        } else {
+            (None, None)
+        };
+        // Set when extracted data disagreed with a manual value and was
+        // discarded; a person should look at the receipt in that case.
+        let mut conflict = !amounts_compatible
+            && (result.total_amount_minor.is_some() || result.tax_amount_minor.is_some());
         macro_rules! merge {
             ($field:ident,$value:expr,$key:literal) => {
-                if !e
-                    .field_meta
-                    .get($key)
-                    .is_some_and(|m| m.source == FieldSource::Manual)
-                {
+                if !is_manual(&e, $key) {
                     if let Some(value) = $value {
                         e.$field = Some(value);
                         e.field_meta.insert(
@@ -290,9 +313,28 @@ impl AppService {
         merge!(merchant_name, result.merchant_name.clone(), "merchantName");
         merge!(premises, result.premises.clone(), "premises");
         merge!(occurred_at, result.date.clone(), "date");
-        merge!(total_amount_minor, result.total_amount_minor, "total");
-        merge!(tax_amount_minor, result.tax_amount_minor, "tax");
+        merge!(total_amount_minor, extracted_total, "total");
+        merge!(tax_amount_minor, extracted_tax, "tax");
         merge!(currency, result.currency.clone(), "currency");
+        // `sanitize` guarantees tax <= total within one extraction, but a manual
+        // value on one side can still conflict with an extracted value on the
+        // other. Drop the extracted side instead of failing the whole job.
+        if let (Some(total), Some(tax)) = (e.total_amount_minor, e.tax_amount_minor) {
+            if tax > total {
+                conflict = true;
+                if !is_manual(&e, "tax") {
+                    e.tax_amount_minor = before_tax.filter(|t| *t <= total);
+                    if e.tax_amount_minor.is_none() {
+                        e.field_meta.remove("tax");
+                    }
+                } else if !is_manual(&e, "total") {
+                    e.total_amount_minor = before_total.filter(|t| *t >= tax);
+                    if e.total_amount_minor.is_none() {
+                        e.field_meta.remove("total");
+                    }
+                }
+            }
+        }
         if !e
             .field_meta
             .get("category")
@@ -335,13 +377,24 @@ impl AppService {
             && e.occurred_at.is_some()
             && e.total_amount_minor.is_some()
             && e.currency.is_some();
-        if e.status != ExpenseStatus::Ready {
-            e.status = if complete && confidence >= 0.9 {
-                ExpenseStatus::Ready
-            } else {
-                ExpenseStatus::NeedsReview
-            };
-        }
+        let meets_ready_bar = complete && confidence >= 0.9;
+        // A Ready expense stays Ready only if re-extraction changed nothing a
+        // reviewer signed off on, or the new values clear the same bar a fresh
+        // extraction needs. Otherwise it goes back for review, which also keeps
+        // it out of a claim submission until someone looks at it.
+        let values_changed = e.merchant_name != before.merchant_name
+            || e.occurred_at != before.occurred_at
+            || e.total_amount_minor != before.total_amount_minor
+            || e.tax_amount_minor != before.tax_amount_minor
+            || e.currency != before.currency
+            || e.category != before.category;
+        e.status = if !conflict
+            && (meets_ready_bar || (e.status == ExpenseStatus::Ready && !values_changed))
+        {
+            ExpenseStatus::Ready
+        } else {
+            ExpenseStatus::NeedsReview
+        };
         e.extraction_confidence = Some(confidence);
         e.updated_at = now();
         expenses::save(&tx, &e)?;

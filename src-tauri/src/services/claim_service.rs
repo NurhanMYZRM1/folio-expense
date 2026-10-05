@@ -93,10 +93,13 @@ impl AppService {
         }
         expenses::get(&tx, expense_id)?;
         let time = now();
-        tx.execute(
+        let removed = tx.execute(
             "DELETE FROM claim_expenses WHERE claim_id=?1 AND expense_id=?2",
             params![claim_id, expense_id],
         )?;
+        if removed == 0 {
+            return Err(AppError::invalid("This expense is not in the claim."));
+        }
         tx.execute("UPDATE expense_claims SET version=version+1,updated_at=?1,sync_state='local_only' WHERE id=?2",params![time,claim_id])?;
         tx.execute("UPDATE expenses SET version=version+1,updated_at=?1,sync_state='local_only' WHERE id=?2",params![time,expense_id])?;
         repository::audit(
