@@ -1,4 +1,5 @@
 pub mod claim;
+pub mod exchange;
 pub mod expense;
 pub mod extraction;
 pub mod receipt;

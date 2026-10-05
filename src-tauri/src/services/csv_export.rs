@@ -20,12 +20,13 @@ pub struct CsvExport {
     pub path: String,
     pub rows: u32,
 }
-const HEADER: [&str; 15] = [
+const HEADER: [&str; 20] = [
     "Claim Number",
     "Claim Title",
     "Receipt Ref",
     "Date",
     "Merchant",
+    "Premises",
     "Category",
     "Description",
     "Currency",
@@ -34,6 +35,10 @@ const HEADER: [&str; 15] = [
     "Status",
     "Receipt File",
     "Expense ID",
+    "Original Currency",
+    "Original Amount",
+    "Exchange Rate",
+    "Rate Date",
     "Personal Name",
     "Organization",
 ];
@@ -43,6 +48,7 @@ struct CsvRow {
     receipt_ref: String,
     date: String,
     merchant: String,
+    premises: String,
     category: String,
     description: String,
     currency: String,
@@ -51,6 +57,11 @@ struct CsvRow {
     status: String,
     receipt_file: String,
     expense_id: String,
+    /// Receipt currency/amount and rate when the expense was converted.
+    original_currency: String,
+    original_amount_minor: Option<i64>,
+    exchange_rate: String,
+    rate_date: String,
     personal_name: String,
     organization: String,
 }
@@ -128,6 +139,7 @@ fn render(rows: &[CsvRow]) -> Vec<u8> {
             text_cell(&r.receipt_ref),
             text_cell(&r.date),
             text_cell(&r.merchant),
+            text_cell(&r.premises),
             text_cell(&r.category),
             text_cell(&r.description),
             text_cell(&r.currency),
@@ -136,6 +148,10 @@ fn render(rows: &[CsvRow]) -> Vec<u8> {
             text_cell(&r.status),
             text_cell(&r.receipt_file),
             text_cell(&r.expense_id),
+            text_cell(&r.original_currency),
+            money_cell(r.original_amount_minor, &r.original_currency),
+            text_cell(&r.exchange_rate),
+            text_cell(&r.rate_date),
             text_cell(&r.personal_name),
             text_cell(&r.organization),
         ];
@@ -143,6 +159,12 @@ fn render(rows: &[CsvRow]) -> Vec<u8> {
         out.extend_from_slice(b"\r\n");
     }
     out
+}
+/// A workbook cell: text is always stored as a string (never a formula), and
+/// money as a number scaled by its currency's exponent; a missing amount is blank.
+enum XlsxCell<'a> {
+    Text(&'a str),
+    Money(Option<i64>, &'a str),
 }
 fn render_xlsx(rows: &[CsvRow]) -> Result<Vec<u8>> {
     let mut workbook = Workbook::new();
@@ -155,49 +177,45 @@ fn render_xlsx(rows: &[CsvRow]) -> Result<Vec<u8>> {
             .write_string(0, col as u16, *header)
             .map_err(|_| AppError::new("ExportError", "Unable to create the Excel workbook."))?;
     }
+    let failed = |_| AppError::new("ExportError", "Unable to create the Excel workbook.");
     for (idx, r) in rows.iter().enumerate() {
         let row = (idx + 1) as u32;
-        let currency = &r.currency;
-        let cells = [
-            r.claim_number.as_str(),
-            r.claim_title.as_str(),
-            r.receipt_ref.as_str(),
-            r.date.as_str(),
-            r.merchant.as_str(),
-            r.category.as_str(),
-            r.description.as_str(),
-            currency.as_str(),
-            "",
-            "",
-            r.status.as_str(),
-            r.receipt_file.as_str(),
-            r.expense_id.as_str(),
-            r.personal_name.as_str(),
-            r.organization.as_str(),
+        // Same columns and order as `render`, so the CSV and workbook match HEADER.
+        let cells: [XlsxCell; 20] = [
+            XlsxCell::Text(&r.claim_number),
+            XlsxCell::Text(&r.claim_title),
+            XlsxCell::Text(&r.receipt_ref),
+            XlsxCell::Text(&r.date),
+            XlsxCell::Text(&r.merchant),
+            XlsxCell::Text(&r.premises),
+            XlsxCell::Text(&r.category),
+            XlsxCell::Text(&r.description),
+            XlsxCell::Text(&r.currency),
+            XlsxCell::Money(r.amount_minor, &r.currency),
+            XlsxCell::Money(r.tax_minor, &r.currency),
+            XlsxCell::Text(&r.status),
+            XlsxCell::Text(&r.receipt_file),
+            XlsxCell::Text(&r.expense_id),
+            XlsxCell::Text(&r.original_currency),
+            XlsxCell::Money(r.original_amount_minor, &r.original_currency),
+            XlsxCell::Text(&r.exchange_rate),
+            XlsxCell::Text(&r.rate_date),
+            XlsxCell::Text(&r.personal_name),
+            XlsxCell::Text(&r.organization),
         ];
-        for (col, value) in cells.iter().enumerate() {
-            if col == 8 || col == 9 {
-                continue;
+        for (col, cell) in cells.iter().enumerate() {
+            let col = col as u16;
+            match *cell {
+                XlsxCell::Text(value) => {
+                    worksheet.write_string(row, col, value).map_err(failed)?;
+                }
+                XlsxCell::Money(Some(minor), currency) => {
+                    worksheet
+                        .write_number(row, col, money_number(minor, currency))
+                        .map_err(failed)?;
+                }
+                XlsxCell::Money(None, _) => {}
             }
-            worksheet
-                .write_string(row, col as u16, *value)
-                .map_err(|_| {
-                    AppError::new("ExportError", "Unable to create the Excel workbook.")
-                })?;
-        }
-        if let Some(amount) = r.amount_minor {
-            worksheet
-                .write_number(row, 8, money_number(amount, currency))
-                .map_err(|_| {
-                    AppError::new("ExportError", "Unable to create the Excel workbook.")
-                })?;
-        }
-        if let Some(tax) = r.tax_minor {
-            worksheet
-                .write_number(row, 9, money_number(tax, currency))
-                .map_err(|_| {
-                    AppError::new("ExportError", "Unable to create the Excel workbook.")
-                })?;
         }
     }
     worksheet.autofit();
@@ -267,6 +285,7 @@ impl AppService {
                     .unwrap_or_default(),
                 date: e.occurred_at.clone().unwrap_or_default(),
                 merchant: e.merchant_name.clone().unwrap_or_default(),
+                premises: e.premises.clone().unwrap_or_default(),
                 category: e.category.clone(),
                 description: e.description.clone(),
                 currency: e.currency.clone().unwrap_or_else(|| claim.currency.clone()),
@@ -275,6 +294,10 @@ impl AppService {
                 status: e.status.as_str().to_string(),
                 receipt_file: e.receipt_filename.clone().unwrap_or_default(),
                 expense_id: e.id.clone(),
+                original_currency: e.original_currency.clone().unwrap_or_default(),
+                original_amount_minor: e.original_total_amount_minor,
+                exchange_rate: e.exchange_rate.clone().unwrap_or_default(),
+                rate_date: e.exchange_rate_date.clone().unwrap_or_default(),
                 personal_name: personal_name.clone(),
                 organization: organization.clone(),
             })
@@ -316,6 +339,7 @@ impl AppService {
                 receipt_ref: String::new(),
                 date: e.occurred_at.clone().unwrap_or_default(),
                 merchant: e.merchant_name.clone().unwrap_or_default(),
+                premises: e.premises.clone().unwrap_or_default(),
                 category: e.category.clone(),
                 description: e.description.clone(),
                 currency: e.currency.clone().unwrap_or_default(),
@@ -324,6 +348,10 @@ impl AppService {
                 status: e.status.as_str().to_string(),
                 receipt_file: e.receipt_filename.clone().unwrap_or_default(),
                 expense_id: e.id.clone(),
+                original_currency: e.original_currency.clone().unwrap_or_default(),
+                original_amount_minor: e.original_total_amount_minor,
+                exchange_rate: e.exchange_rate.clone().unwrap_or_default(),
+                rate_date: e.exchange_rate_date.clone().unwrap_or_default(),
                 personal_name: personal_name.clone(),
                 organization: organization.clone(),
             });
@@ -495,6 +523,7 @@ mod tests {
             receipt_ref: receipt_ref.into(),
             date: "2026-09-27".into(),
             merchant: merchant.into(),
+            premises: "Jalan Ampang 50450 Kuala Lumpur".into(),
             category: "Meals".into(),
             description: String::new(),
             currency: currency.into(),
@@ -503,6 +532,10 @@ mod tests {
             status: "ready".into(),
             receipt_file: "receipt.png".into(),
             expense_id: "e1".into(),
+            original_currency: String::new(),
+            original_amount_minor: None,
+            exchange_rate: String::new(),
+            rate_date: String::new(),
             personal_name: String::new(),
             organization: String::new(),
         }
@@ -526,7 +559,7 @@ mod tests {
         let first_line = s.split("\r\n").next().unwrap();
         assert_eq!(
             first_line,
-            "Claim Number,Claim Title,Receipt Ref,Date,Merchant,Category,Description,Currency,Amount,Tax,Status,Receipt File,Expense ID,Personal Name,Organization"
+            "Claim Number,Claim Title,Receipt Ref,Date,Merchant,Premises,Category,Description,Currency,Amount,Tax,Status,Receipt File,Expense ID,Original Currency,Original Amount,Exchange Rate,Rate Date,Personal Name,Organization"
         );
     }
     #[test]
@@ -622,9 +655,27 @@ mod tests {
         ])
         .unwrap();
         let sheet = xlsx_part(&out, "xl/worksheets/sheet1.xml");
-        assert!(sheet.contains("<c r=\"I2\"><v>84.5</v></c>"), "{sheet}");
-        assert!(sheet.contains("<c r=\"I3\"><v>1500</v></c>"));
-        assert!(sheet.contains("<c r=\"I4\"><v>12.345</v></c>"));
+        assert!(sheet.contains("<c r=\"J2\"><v>84.5</v></c>"), "{sheet}");
+        assert!(sheet.contains("<c r=\"J3\"><v>1500</v></c>"));
+        assert!(sheet.contains("<c r=\"J4\"><v>12.345</v></c>"));
+    }
+    #[test]
+    fn xlsx_columns_follow_the_header_including_converted_amounts() {
+        let mut r = row("Cafe", "MYR", Some(4206), None, "R001");
+        r.original_currency = "USD".into();
+        r.original_amount_minor = Some(999);
+        r.organization = "Acme".into();
+        let out = render_xlsx(&[r]).unwrap();
+        let sheet = xlsx_part(&out, "xl/worksheets/sheet1.xml");
+        let strings = xlsx_part(&out, "xl/sharedStrings.xml");
+        // HEADER[9] is Amount (column J), HEADER[15] is Original Amount (column P).
+        assert_eq!(HEADER[9], "Amount");
+        assert_eq!(HEADER[15], "Original Amount");
+        assert!(sheet.contains("<c r=\"J2\"><v>42.06</v></c>"), "{sheet}");
+        assert!(sheet.contains("<c r=\"P2\"><v>9.99</v></c>"), "{sheet}");
+        // The last column (T) holds the organization text.
+        assert!(sheet.contains("<c r=\"T2\" t=\"s\">"), "{sheet}");
+        assert!(strings.contains("Acme"));
     }
     #[test]
     fn missing_amount_renders_blank_cell() {
@@ -632,7 +683,8 @@ mod tests {
         let s = text(&out[3..]);
         let last = s.split("\r\n").nth(1).unwrap();
         let cells: Vec<&str> = last.split(',').collect();
-        assert_eq!(cells[8], "");
+        assert_eq!(cells[5], "Jalan Ampang 50450 Kuala Lumpur");
         assert_eq!(cells[9], "");
+        assert_eq!(cells[10], "");
     }
 }

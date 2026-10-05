@@ -154,6 +154,12 @@ const fixture = (): ExportSnapshot => ({
       syncState: 'local_only',
       receiptFilename: 'receipt.pdf',
       claimId: 'claim-1',
+      originalCurrency: null,
+      originalTotalAmountMinor: null,
+      originalTaxAmountMinor: null,
+      exchangeRate: null,
+      exchangeRateDate: null,
+      premises: null,
     },
   ],
   receipts: [
@@ -187,7 +193,26 @@ async function makeImageReceipt(): Promise<ReceiptContent> {
       sizeBytes: 100,
       createdAt: '',
     },
+    mimeType: 'image/png',
     base64: png,
+  };
+}
+async function makeHeicReceipt(): Promise<ReceiptContent> {
+  // A HEIC original arrives as its JPEG rendition (a 1x1 white JPEG).
+  const jpeg =
+    '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==';
+  return {
+    receipt: {
+      id: 'r1',
+      sha256: 'hash',
+      originalFilename: 'IMG_0001.HEIC',
+      mimeType: 'image/heic',
+      relativePath: 'receipts/r1/original.heic',
+      sizeBytes: 100,
+      createdAt: '',
+    },
+    mimeType: 'image/jpeg',
+    base64: jpeg,
   };
 }
 async function makePdfReceipt(pageCount = 2): Promise<ReceiptContent> {
@@ -203,6 +228,7 @@ async function makePdfReceipt(pageCount = 2): Promise<ReceiptContent> {
       sizeBytes: 100,
       createdAt: '',
     },
+    mimeType: 'application/pdf',
     base64: Buffer.from(await original.save()).toString('base64'),
   };
 }
@@ -285,6 +311,27 @@ describe('claim PDF', () => {
     const destLinks = linkAnnotations(pdf.getPage(0)).filter((a) => a.has(PDFName.of('Dest')));
     expect(destLinks).toHaveLength(1);
     expect(destPageRef(destLinks[0])?.toString()).toBe(appendixPage.ref.toString());
+  });
+  it('embeds a HEIC receipt through its JPEG rendition', async () => {
+    const s = fixture();
+    s.receipts[0].mimeType = 'image/heic';
+    s.expenses[0].receiptFilename = 'IMG_0001.HEIC';
+    s.includeReceipts = true;
+    const data = await generateClaimPdf(s, [await makeHeicReceipt()], await loadFont());
+    const pdf = await PDFDocument.load(data);
+    expect(pdf.getPageCount()).toBe(3); // summary, register, one appendix page
+    expect(pageText(pdf, 2)).toContain('RECEIPT APPENDIX');
+  });
+  it('names the receipt instead of crashing on an image format it cannot embed', async () => {
+    const s = fixture();
+    s.receipts[0].mimeType = 'image/heic';
+    s.expenses[0].receiptFilename = 'IMG_0001.HEIC';
+    s.includeReceipts = true;
+    const raw = await makeHeicReceipt();
+    raw.mimeType = 'image/heic';
+    await expect(generateClaimPdf(s, [raw], await loadFont())).rejects.toThrow(
+      'IMG_0001.HEIC cannot be added to the report',
+    );
   });
   it('links the summary RECEIPT cell to the first page of a multi-page PDF receipt appendix', async () => {
     const s = fixture();

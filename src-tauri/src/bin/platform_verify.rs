@@ -91,6 +91,7 @@ fn ai(image_path: &str) -> CheckResult {
         raw_text: "",
         images: &images,
         default_currency: "MYR",
+        ocr_confidence: None,
     })?;
     if result.total_amount_minor != Some(8450) || result.currency.as_deref() != Some("MYR") {
         return Err(

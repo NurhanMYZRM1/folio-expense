@@ -56,7 +56,7 @@ impl AppPaths {
     }
     pub fn receipt_relative(id: &str, extension: &str) -> Result<String> {
         uuid::Uuid::parse_str(id).map_err(|_| AppError::invalid("Invalid receipt ID."))?;
-        if !["png", "jpg", "pdf", "webp"].contains(&extension) {
+        if !["png", "jpg", "pdf", "webp", "heic"].contains(&extension) {
             return Err(AppError::invalid("Invalid receipt format."));
         }
         Ok(format!("receipts/{id}/original.{extension}"))

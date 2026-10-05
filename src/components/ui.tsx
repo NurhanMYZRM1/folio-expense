@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Circle, LoaderCircle, FileText, ArrowUpRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { STATUS_LABELS } from '../lib/constants';
+import { ParallaxHeader } from './motion';
 import type { FieldMeta } from '../bindings/generated';
 export function StatusBadge({ status }: { status: string }) {
   return (
@@ -40,11 +41,11 @@ export function PageHeader({
 }) {
   return (
     <div className="page-heading">
-      <div>
+      <ParallaxHeader className="page-title">
         {eyebrow && <div className="eyebrow">{eyebrow}</div>}
         <h1>{title}</h1>
         <p>{subtitle}</p>
-      </div>
+      </ParallaxHeader>
       {actions && <div className="page-actions">{actions}</div>}
     </div>
   );
@@ -96,6 +97,22 @@ export function TextLink({ to, children }: { to: string; children: ReactNode }) 
       {children}
       <ArrowUpRight size={14} />
     </Link>
+  );
+}
+/** Shimmering placeholder shaped like a page, shown while the workspace loads. */
+export function PageSkeleton() {
+  return (
+    <div className="skeleton-page" role="status" aria-label="Loading local workspace">
+      <div className="skeleton" style={{ width: 140, height: 12 }} />
+      <div className="skeleton" style={{ width: 280, height: 30 }} />
+      <div className="skeleton" style={{ width: 360, maxWidth: '100%', height: 14 }} />
+      <div className="skeleton-row" style={{ marginTop: 16 }}>
+        {[0, 1, 2, 3].map((i) => (
+          <div className="skeleton" key={i} style={{ height: 124, borderRadius: 14 }} />
+        ))}
+      </div>
+      <div className="skeleton" style={{ height: 280, borderRadius: 14 }} />
+    </div>
   );
 }
 export function Loading() {

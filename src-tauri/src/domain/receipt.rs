@@ -16,6 +16,9 @@ pub struct ReceiptFile {
 #[serde(rename_all = "camelCase")]
 pub struct ReceiptContent {
     pub receipt: ReceiptFile,
+    /// Format of `base64`. Usually the original's; HEIC originals are served
+    /// as a JPEG rendition because WebViews and PDF tools cannot read HEIC.
+    pub mime_type: String,
     pub base64: String,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

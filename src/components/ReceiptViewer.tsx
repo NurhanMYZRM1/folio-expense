@@ -39,14 +39,14 @@ export function ReceiptViewer({ receiptId }: { receiptId: string | null }) {
         .then(async (r) => {
           if (!live) return;
           setName(r.receipt.originalFilename);
-          if (r.receipt.mimeType === 'application/pdf') {
+          if (r.mimeType === 'application/pdf') {
             const { loadPdf } = await import('../lib/receiptRendering');
             document = await loadPdf(r);
             if (live) setPdf(document);
             else void document.loadingTask.destroy();
           } else {
             url = URL.createObjectURL(
-              new Blob([decodeBase64(r.base64) as BlobPart], { type: r.receipt.mimeType }),
+              new Blob([decodeBase64(r.base64) as BlobPart], { type: r.mimeType }),
             );
             if (live) setSrc(url);
           }

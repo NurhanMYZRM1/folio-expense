@@ -35,6 +35,14 @@ pub(super) async fn set_claim_expense(
     blocking(s, move |s| s.set_claim_expense(&claim_id, &expense_id, add)).await
 }
 #[tauri::command]
+pub(super) async fn add_claim_expenses(
+    s: Service<'_>,
+    claim_id: String,
+    expense_ids: Vec<String>,
+) -> Result<ClaimDetail> {
+    blocking(s, move |s| s.add_claim_expenses(&claim_id, expense_ids)).await
+}
+#[tauri::command]
 pub(super) async fn transition_claim(
     s: Service<'_>,
     id: String,

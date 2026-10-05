@@ -1,7 +1,8 @@
-import { createWorker, OEM, type Worker as OcrWorker } from 'tesseract.js';
+import { createWorker, OEM, PSM, type Worker as OcrWorker } from 'tesseract.js';
 import { api } from './ipc';
 import { encodeBase64 } from './encoding';
 import { errorMessage } from './errors';
+import { bestPass, isGoodPass, type OcrPass } from './ocrPasses';
 import type { ExportSnapshot, JobLease, ReceiptContent } from '../bindings/generated';
 type Callbacks = {
   refresh: () => Promise<void>;
@@ -83,7 +84,8 @@ export function startJobRunner(callbacks: Callbacks): () => void {
       } else {
         if (!receiptId) throw new Error('The receipt for this job is missing.');
         const receipt = await api.receipt(receiptId);
-        const { receiptPages, thumbnail, preprocessCanvas } = await import('./receiptRendering');
+        const { receiptPages, thumbnail, preprocessCanvas, binarizedCanvas } =
+          await import('./receiptRendering');
         if (job.jobType === 'generate_thumbnail') {
           await api.completeThumbnail(id, token, await thumbnail(receipt));
         } else {
@@ -103,7 +105,7 @@ export function startJobRunner(callbacks: Callbacks): () => void {
               throw new Error(
                 'Automatic extraction is unavailable. The receipt was saved locally and can still be entered manually.',
               );
-            if (!ocr)
+            if (!ocr) {
               ocr = await createWorker('eng', OEM.LSTM_ONLY, {
                 workerPath: `${location.origin}/ocr/worker.min.js`,
                 corePath: `${location.origin}/ocr`,
@@ -116,13 +118,21 @@ export function startJobRunner(callbacks: Callbacks): () => void {
                     progress(`Local OCR · ${Math.round(status.progress * 100)}%`);
                 },
               });
+              // The page layout mode is set per pass below.
+              await ocr.setParameters({ preserve_interword_spaces: '1' });
+            }
             let rawText = '',
-              page = 0;
-            for await (const canvas of receiptPages(receipt)) {
-              progress(`Local OCR · page ${++page}`);
+              page = 0,
+              // Tesseract's 0–100 confidence, averaged over pages by how much
+              // text each page holds (a blank back page shouldn't count).
+              weightedConfidence = 0,
+              textLength = 0;
+            const worker = ocr;
+            const read = async (image: HTMLCanvasElement, mode: PSM): Promise<OcrPass> => {
+              await worker.setParameters({ tessedit_pageseg_mode: mode });
               let timer: ReturnType<typeof setTimeout> | undefined;
               const result = await Promise.race([
-                ocr.recognize(preprocessCanvas(canvas)),
+                worker.recognize(image),
                 new Promise<never>((_, reject) => {
                   timer = setTimeout(
                     () =>
@@ -135,10 +145,34 @@ export function startJobRunner(callbacks: Callbacks): () => void {
                   );
                 }),
               ]).finally(() => clearTimeout(timer));
-              rawText += `${result.data.text}\n`;
-              canvas.width = canvas.height = 0;
+              return { text: result.data.text, confidence: result.data.confidence };
+            };
+            for await (const canvas of receiptPages(receipt)) {
+              progress(`Local OCR · page ${++page}`);
+              const prepared = preprocessCanvas(canvas);
+              // See ocrPasses.ts: retry only when the first reading looks incomplete.
+              const passes = [await read(prepared, PSM.SINGLE_COLUMN)];
+              if (!isGoodPass(passes[0])) {
+                progress(`Local OCR · page ${page} · second look`);
+                passes.push(await read(prepared, PSM.SINGLE_BLOCK));
+              }
+              if (!passes.some(isGoodPass)) {
+                progress(`Local OCR · page ${page} · black-and-white`);
+                passes.push(await read(binarizedCanvas(prepared), PSM.SINGLE_BLOCK));
+              }
+              const result = bestPass(passes);
+              rawText += `${result.text}\n`;
+              const length = result.text.trim().length;
+              weightedConfidence += result.confidence * length;
+              textLength += length;
+              canvas.width = canvas.height = prepared.width = prepared.height = 0;
             }
-            await api.completeOcr(id, token, rawText);
+            await api.completeOcr(
+              id,
+              token,
+              rawText,
+              textLength ? weightedConfidence / textLength : null,
+            );
           }
         }
       }
@@ -166,9 +200,22 @@ export function startJobRunner(callbacks: Callbacks): () => void {
   };
   const interval = setInterval(() => void tick(), 1500);
   void tick();
+  // Foreign receipts imported while offline are converted once rates can be
+  // downloaded. Failures (still offline) are silent; the next round retries.
+  const convert = async () => {
+    if (stopped) return;
+    try {
+      if (await api.convertPending()) await callbacks.refresh();
+    } catch {
+      /* retried on the next round */
+    }
+  };
+  const conversions = setInterval(() => void convert(), 120_000);
+  void convert();
   return () => {
     stopped = true;
     clearInterval(interval);
+    clearInterval(conversions);
     if (!current && ocr) void ocr.terminate();
   };
 }

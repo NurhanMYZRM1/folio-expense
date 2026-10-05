@@ -14,6 +14,13 @@ pub struct Settings {
     pub include_receipts: bool,
     pub company: String,
     pub employee: String,
+    /// Convert foreign-currency receipts to `default_currency` using published
+    /// exchange rates (only currency codes and a date are sent online).
+    #[serde(default = "enabled")]
+    pub currency_conversion_enabled: bool,
+}
+fn enabled() -> bool {
+    true
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -29,6 +36,7 @@ impl Default for Settings {
             include_receipts: true,
             company: String::new(),
             employee: String::new(),
+            currency_conversion_enabled: true,
         }
     }
 }
