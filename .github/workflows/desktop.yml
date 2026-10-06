@@ -1,30 +1,17 @@
-name: Desktop verification
+name: Desktop installers
+# Builds the unsigned macOS and Windows installers, after running the same
+# verification on each platform. macOS minutes are billed at 10x and Windows
+# at 2x, so this runs only when started by hand (Actions tab → Desktop
+# installers → Run workflow), e.g. before a release. Every PR and push to main
+# is verified on Linux by ci.yml.
 on:
-  # Branch pushes are already verified through their pull request, so only
-  # main runs on push. This stops every PR commit from running twice.
-  push:
-    branches: [main]
-  pull_request:
   workflow_dispatch:
 permissions:
   contents: read
-# A newer push to the same branch or PR cancels the run it replaces.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
-  audit:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-audit
-      # Fails on any known vulnerability in the Rust dependency tree.
-      # Informational warnings (unmaintained/unsound) are reported but do not
-      # fail the build; today they come only from Tauri's Linux GTK stack,
-      # which the macOS and Windows bundles do not ship.
-      - run: cargo audit --file src-tauri/Cargo.lock
   verify:
     strategy:
       fail-fast: false
@@ -68,11 +55,10 @@ jobs:
       - run: npm run test:e2e
       - name: Build unsigned evaluation installers
         run: npm run tauri -- build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
-      # Installers are large, so they are kept only for main and manual runs,
-      # and only for a week. Artifact storage has a quota; a failed upload
-      # must not turn an otherwise green verification red.
+      # Installers are large, so they are kept only for a week. Artifact
+      # storage has a quota; a failed upload must not turn an otherwise green
+      # verification red.
       - uses: actions/upload-artifact@v7
-        if: github.event_name != 'pull_request'
         continue-on-error: true
         with:
           name: folio-${{ matrix.target }}
