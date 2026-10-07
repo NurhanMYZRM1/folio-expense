@@ -161,6 +161,21 @@ impl OnlineVisionExtractor<'_> {
     }
 }
 
+/// The message shown (and stored on the job) when the provider answers with an
+/// error status. Common causes say what to change; the receipt always falls
+/// back to local OCR. Never includes the response body, which may echo input.
+fn provider_status_message(status: u16) -> String {
+    let cause = match status {
+        401 | 403 => format!(
+            "The AI provider rejected the API credential (HTTP {status}). Check Settings → API credential."
+        ),
+        404 => "The AI provider could not find that model or endpoint (HTTP 404). Check the vision model and API base URL in Settings.".into(),
+        429 => "The AI provider refused the request (HTTP 429): the account is out of credit or rate-limited.".into(),
+        _ => format!("The AI provider returned HTTP {status}."),
+    };
+    format!("{cause} Trying local OCR.")
+}
+
 impl ReceiptExtractor for OnlineVisionExtractor<'_> {
     fn extract(&self, input: &ExtractionInput<'_>) -> Result<Extraction> {
         let client = reqwest::blocking::Client::builder()
@@ -191,10 +206,7 @@ impl ReceiptExtractor for OnlineVisionExtractor<'_> {
         if !response.status().is_success() {
             return Err(AppError::new(
                 "AiProviderError",
-                format!(
-                    "The AI provider returned HTTP {}. Trying local OCR.",
-                    response.status().as_u16()
-                ),
+                provider_status_message(response.status().as_u16()),
             ));
         }
         let mut body = Vec::new();
@@ -238,6 +250,23 @@ mod tests {
             base_url: "https://example.test",
             model: "test-model",
             credential: "secret",
+        }
+    }
+
+    #[test]
+    fn provider_failures_tell_the_user_what_to_fix() {
+        let m = |status| provider_status_message(status);
+        assert!(m(401).contains("API credential"), "{}", m(401));
+        assert!(m(401).contains("rejected"));
+        assert!(m(403).contains("API credential"));
+        assert!(m(404).contains("model") && m(404).contains("API base URL"));
+        assert!(m(429).contains("credit") || m(429).contains("rate"));
+        assert_eq!(
+            m(503),
+            "The AI provider returned HTTP 503. Trying local OCR."
+        );
+        for status in [401, 403, 404, 429, 503] {
+            assert!(m(status).ends_with("Trying local OCR."), "{status}");
         }
     }
 
