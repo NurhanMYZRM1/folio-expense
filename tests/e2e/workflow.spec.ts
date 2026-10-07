@@ -166,6 +166,32 @@ test('offline receipt → real Rust/SQLite → OCR → review → claim → PDF 
     expect((await bridge.call<Claim[]>('list_claims'))[0].id).toBe(claim.id);
     await page.getByLabel('Search expenses').fill('does not exist');
     await expect(page.getByText('No matching expenses')).toBeVisible();
+
+    // Values stay correctable once the claim is submitted, and only a real
+    // content change (not the submission itself) outdates an exported report.
+    await page.goto(`/#/claims/${claim.id}`);
+    await page.getByRole('button', { name: 'Mark submitted' }).click();
+    await expect(
+      page.getByText('Claim marked as submitted locally. No data was sent.'),
+    ).toBeVisible();
+    await expect(page.getByText('Saved locally · snapshot of claim at export time')).toBeVisible();
+    await expect(page.getByText('Outdated', { exact: false })).toHaveCount(0);
+    await page.goto(`/#/expenses/${expense.id}`);
+    await expect(page.getByText('You can still correct its values')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Mark as ready' })).toHaveCount(0);
+    await page.getByLabel('Merchant', { exact: false }).fill('Kopi House · corrected after submit');
+    await page.getByRole('button', { name: 'Save changes' }).click();
+    await expect(
+      page.getByText('Changes saved. Export the claim report again to include them.'),
+    ).toBeVisible();
+    [expense] = await bridge.call<Expense[]>('list_expenses');
+    expect(expense.merchantName).toBe('Kopi House · corrected after submit');
+    expect(expense.status).toBe('submitted');
+    await page.goto(`/#/claims/${claim.id}`);
+    await expect(
+      page.getByText('Outdated · the claim changed after this report was generated'),
+    ).toBeVisible();
+    await expect(page.getByText('Export a new PDF to include the latest values.')).toBeVisible();
   } finally {
     await page.goto('about:blank');
     await bridge.close();

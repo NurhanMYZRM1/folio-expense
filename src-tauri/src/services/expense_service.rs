@@ -51,11 +51,9 @@ impl AppService {
                 "This expense changed in the background. Reload before saving your changes.",
             ));
         }
-        if matches!(e.status, ExpenseStatus::Submitted | ExpenseStatus::Archived) {
-            return Err(AppError::invalid(
-                "Reopen the claim before editing this expense.",
-            ));
-        }
+        // Values stay correctable after the claim is submitted or archived; the
+        // expense keeps that status so it never disagrees with its claim.
+        let claim_locked = matches!(e.status, ExpenseStatus::Submitted | ExpenseStatus::Archived);
         let before = e.clone();
         e.clear_conversion();
         let mut changed = Vec::new();
@@ -84,10 +82,12 @@ impl AppService {
         update!(description, "description");
         Self::reconvert_in_tx(&tx, &mut e, &before, &settings)?;
         Self::check_claim_currency(&tx, &e)?;
-        if edit.mark_ready {
-            e.status = ExpenseStatus::Ready;
-        } else if e.status == ExpenseStatus::Ready {
-            e.status = ExpenseStatus::NeedsReview;
+        if !claim_locked {
+            if edit.mark_ready {
+                e.status = ExpenseStatus::Ready;
+            } else if e.status == ExpenseStatus::Ready {
+                e.status = ExpenseStatus::NeedsReview;
+            }
         }
         e.updated_at = now();
         expenses::save(&tx, &e)?;
@@ -98,7 +98,7 @@ impl AppService {
             &tx,
             "expense.edited",
             &e.id,
-            serde_json::json!({"fields":changed,"status":e.status}),
+            serde_json::json!({"fields":changed,"status":e.status,"claimStatus":claim_locked.then_some(e.status)}),
         )?;
         tx.commit()?;
         expenses::get(&db, &e.id)

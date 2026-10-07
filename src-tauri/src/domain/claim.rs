@@ -39,6 +39,10 @@ pub struct Claim {
 pub struct ClaimDetail {
     pub claim: Claim,
     pub expenses: Vec<Expense>,
+    /// When the claim's contents (expense values, membership, title) last
+    /// changed. Status changes don't count. A report generated before this
+    /// moment no longer matches the claim.
+    pub content_changed_at: Option<String>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

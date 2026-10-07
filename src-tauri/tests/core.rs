@@ -605,12 +605,79 @@ fn claim_totals_currency_and_membership_are_enforced() {
     s.transition_claim(&claim.id, ClaimStatus::Submitted)
         .unwrap();
     assert_eq!(s.expense(&id).unwrap().status, ExpenseStatus::Submitted);
-    assert!(s.edit_expense(edit(&s, &id)).is_err());
     s.transition_claim(&claim.id, ClaimStatus::Draft).unwrap();
     s.edit_expense(edit(&s, &id)).unwrap();
     let d = s.set_claim_expense(&claim.id, &id, false).unwrap();
     assert_eq!(d.claim.total_amount_minor, 0);
     assert!(s.request_pdf(&claim.id).is_err());
+}
+#[test]
+fn receipt_values_stay_editable_after_the_claim_is_submitted_or_archived() {
+    let (t, s) = workspace();
+    let id = s.create_expense().unwrap().id;
+    s.edit_expense(edit(&s, &id)).unwrap();
+    let claim = s.create_claim("September".into(), "MYR".into()).unwrap();
+    s.set_claim_expense(&claim.id, &id, true).unwrap();
+    s.transition_claim(&claim.id, ClaimStatus::Submitted)
+        .unwrap();
+    let before = s.claim(&claim.id).unwrap().claim;
+
+    let mut fix = edit(&s, &id);
+    fix.merchant_name = Some("Corrected merchant".into());
+    fix.total_amount_minor = Some(9000);
+    let saved = s.edit_expense(fix).unwrap();
+    assert_eq!(saved.merchant_name.as_deref(), Some("Corrected merchant"));
+    assert_eq!(saved.total_amount_minor, Some(9000));
+    assert_eq!(
+        saved.status,
+        ExpenseStatus::Submitted,
+        "an edit never moves an expense out of its claim's status"
+    );
+    let detail = s.claim(&claim.id).unwrap();
+    let after = detail.claim;
+    // Reports exported before this edit are outdated; a status change alone is not a content change.
+    let changed_at = detail
+        .content_changed_at
+        .expect("the edit is a content change");
+    assert!(changed_at >= before.updated_at);
+    assert_eq!(after.status.as_str(), "submitted");
+    assert_eq!(after.total_amount_minor, 9000);
+    assert!(after.version > before.version);
+    assert!(after.updated_at >= before.updated_at);
+
+    s.transition_claim(&claim.id, ClaimStatus::Archived)
+        .unwrap();
+    assert_eq!(
+        s.claim(&claim.id).unwrap().content_changed_at,
+        Some(changed_at),
+        "archiving does not make exported reports outdated"
+    );
+    let mut again = edit(&s, &id);
+    again.merchant_name = Some("Corrected again".into());
+    again.mark_ready = false;
+    let saved = s.edit_expense(again).unwrap();
+    assert_eq!(saved.merchant_name.as_deref(), Some("Corrected again"));
+    assert_eq!(saved.status, ExpenseStatus::Archived);
+    assert_eq!(
+        s.claim(&claim.id).unwrap().claim.status.as_str(),
+        "archived"
+    );
+
+    // The edits are recorded, along with the claim status they were made under.
+    let db = rusqlite::Connection::open(t.path().join("app/database/expenses.sqlite")).unwrap();
+    let details: Vec<String> = db
+        .prepare("SELECT details FROM audit_events WHERE event_type='expense.edited' AND entity_id=?1 ORDER BY created_at, rowid")
+        .unwrap()
+        .query_map([&id], |r| r.get(0))
+        .unwrap()
+        .map(|d| d.unwrap())
+        .collect();
+    assert!(details[details.len() - 2].contains("\"claimStatus\":\"submitted\""));
+    assert!(details[details.len() - 1].contains("\"claimStatus\":\"archived\""));
+
+    // Everything else about a finished claim stays locked.
+    assert!(s.delete_expenses(vec![id.clone()]).is_err());
+    assert!(s.set_claim_expense(&claim.id, &id, false).is_err());
 }
 #[test]
 fn crash_recovery_invalidates_old_lease_and_preserves_data() {

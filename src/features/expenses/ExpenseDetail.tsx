@@ -48,6 +48,8 @@ function Editor({ initial, reload }: { initial: Expense; reload: () => Promise<v
     [confirmDelete, setConfirmDelete] = useState(false);
   const latest = expenses.find((e) => e.id === initial.id),
     stale = latest && latest.version !== initial.version;
+  // Values stay editable in a submitted/archived claim, but the claim's lifecycle
+  // stays locked: no re-extraction, deletion or "mark as ready".
   const locked = ['submitted', 'archived'].includes(initial.status);
   function update(key: keyof typeof form, value: string) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -84,7 +86,13 @@ function Editor({ initial, reload }: { initial: Expense; reload: () => Promise<v
       setDirty(false);
       await refresh();
       await reload();
-      notify(ready ? 'Expense reviewed and ready to claim.' : 'Expense saved on this device.');
+      notify(
+        locked
+          ? 'Changes saved. Export the claim report again to include them.'
+          : ready
+            ? 'Expense reviewed and ready to claim.'
+            : 'Expense saved on this device.',
+      );
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -163,12 +171,13 @@ function Editor({ initial, reload }: { initial: Expense; reload: () => Promise<v
           {error && <div className="inline-error">{error}</div>}
           {locked && (
             <div className="notice-box">
-              This expense belongs to a {initial.status} claim.{' '}
-              <Link to={`/claims/${initial.claimId}`}>Open claim to reopen it.</Link>
+              This expense belongs to a {initial.status} claim. You can still correct its values;
+              changes are saved and logged, but reports exported earlier won&apos;t include them.{' '}
+              <Link to={`/claims/${initial.claimId}`}>Open claim</Link>
             </div>
           )}
           <form onSubmit={submit}>
-            <fieldset disabled={locked || busy}>
+            <fieldset disabled={busy}>
               <label className="field">
                 <span>
                   Merchant <Confidence meta={meta('merchantName', 'merchant')} />
@@ -281,19 +290,28 @@ function Editor({ initial, reload }: { initial: Expense; reload: () => Promise<v
                 </span>
               </div>
               <div className="form-actions">
-                <button
-                  type="button"
-                  className="button secondary"
-                  disabled={busy || !!stale}
-                  onClick={() => void save(false)}
-                >
-                  <Save size={15} />
-                  Save draft
-                </button>
-                <button type="submit" className="button primary" disabled={busy || !!stale}>
-                  <Check size={16} />
-                  {busy ? 'Saving…' : 'Mark as ready'}
-                </button>
+                {locked ? (
+                  <button type="submit" className="button primary" disabled={busy || !!stale}>
+                    <Save size={15} />
+                    {busy ? 'Saving…' : 'Save changes'}
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      className="button secondary"
+                      disabled={busy || !!stale}
+                      onClick={() => void save(false)}
+                    >
+                      <Save size={15} />
+                      Save draft
+                    </button>
+                    <button type="submit" className="button primary" disabled={busy || !!stale}>
+                      <Check size={16} />
+                      {busy ? 'Saving…' : 'Mark as ready'}
+                    </button>
+                  </>
+                )}
               </div>
             </fieldset>
           </form>

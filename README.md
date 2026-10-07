@@ -34,7 +34,7 @@ npm run desktop
 7. Export a PDF, a CSV, or both. PDF reports include a summary, receipt reference register, and optional receipt appendix; each summary row's `RECEIPT` cell links internally to that receipt's register or appendix page, and the receipt file name on the register and appendix pages additionally carries a hidden `expenseapp://receipt/<id>` deep link for PDF readers that support custom-scheme links. **Export CSV** is available for a whole claim (claim detail, next to **Export PDF**) or for a hand-picked set of expenses (select rows in the expenses list); CSV files include a Premises column and are Excel-friendly (UTF-8 with a BOM, comma-separated, CRLF line endings).
 8. Reopen expenses, claims, and generated reports later without a connection.
 
-Marking a claim submitted only updates local status; it does not send a report to anyone. Submitted/archived claim expenses are locked until the claim is reopened.
+Marking a claim submitted only updates local status; it does not send a report to anyone. You can still correct the values of expenses in a submitted or archived claim (the change is logged, and any report exported earlier is marked outdated so you can export it again); re-extracting, deleting, or moving them in or out of the claim requires reopening the claim first.
 
 ## Data and privacy
 

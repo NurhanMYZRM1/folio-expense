@@ -40,7 +40,13 @@ export type Job = { id: string, jobType: string, entityId: string, status: strin
 export type JobLease = { job: Job, token: string, receiptId: string | null, };
 export type ClaimStatus = "draft" | "submitted" | "archived";
 export type Claim = { id: string, claimNumber: string, title: string, description: string, status: ClaimStatus, currency: string, totalAmountMinor: number, expenseCount: number, createdAt: string, updatedAt: string, version: number, syncState: string, };
-export type ClaimDetail = { claim: Claim, expenses: Array<Expense>, };
+export type ClaimDetail = { claim: Claim, expenses: Array<Expense>, 
+/**
+ * When the claim's contents (expense values, membership, title) last
+ * changed. Status changes don't count. A report generated before this
+ * moment no longer matches the claim.
+ */
+contentChangedAt: string | null, };
 export type ExportSnapshot = { claim: Claim, expenses: Array<Expense>, receipts: Array<ReceiptFile>, company: string, employee: string, includeReceipts: boolean, generatedAt: string, };
 export type Settings = { theme: string, defaultCurrency: string, onlineEnabled: boolean, provider: string, apiBaseUrl: string, aiModel: string, offlineOcrEnabled: boolean, exportDirectory: string | null, includeReceipts: boolean, company: string, employee: string, 
 /**

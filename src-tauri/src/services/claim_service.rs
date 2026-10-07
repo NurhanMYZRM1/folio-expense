@@ -18,12 +18,23 @@ impl AppService {
     }
     pub fn claim(&self, id: &str) -> Result<ClaimDetail> {
         let db = self.conn()?;
+        let content_changed_at = db.query_row(
+            "SELECT MAX(created_at) FROM audit_events WHERE \
+             (event_type IN ('expense.edited','expense.converted') \
+                AND entity_id IN (SELECT expense_id FROM claim_expenses WHERE claim_id=?1)) \
+             OR (event_type IN ('expense.added_to_claim','expense.removed_from_claim') \
+                AND json_extract(details,'$.claimId')=?1) \
+             OR (event_type='claim.edited' AND entity_id=?1)",
+            [id],
+            |r| r.get(0),
+        )?;
         Ok(ClaimDetail {
             claim: claims::get(&db, id)?,
             expenses: expenses::all(&db)?
                 .into_iter()
                 .filter(|e| e.claim_id.as_deref() == Some(id))
                 .collect(),
+            content_changed_at,
         })
     }
     pub fn create_claim(&self, title: String, currency: String) -> Result<Claim> {

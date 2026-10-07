@@ -35,6 +35,8 @@ fn re(pattern: &str) -> Result<Regex> {
 /// unreadable: every field is capped below the ready threshold.
 const UNREADABLE_OCR_CONFIDENCE: f64 = 60.0;
 const UNREADABLE_FIELD_CAP: f64 = 0.6;
+/// A total guessed from an unlabelled amount: shown pre-filled, never ready.
+const UNLABELLED_TOTAL_CONFIDENCE: f64 = 0.6;
 /// Page confidence at or above which a total that is merely the largest
 /// amount on the receipt (no arithmetic cross-check) is trusted.
 const CLEAR_OCR_CONFIDENCE: f64 = 75.0;
@@ -170,10 +172,12 @@ impl Labels {
     fn new() -> Result<Self> {
         Ok(Self {
             // `T0TAL`, `TOTA1` and `TOTAI` are common OCR misreads of TOTAL.
-            total: re(r"T[O0]TA[L1I]|AMOUNT DUE|BALANCE DUE|AMOUNT PAYABLE|\bJUMLAH\b")?,
+            total: re(
+                r"T[O0]TA[L1I]|AMOUNT DUE|BALANCE DUE|AMOUNT PAYABLE|\bJUMLAH\b|PERLU\s*DIBAYAR",
+            )?,
             subtotal: re(r"SUB\s*-?\s*T[O0]TA[L1I]")?,
             strong_total: re(
-                r"GRAND|\bNETT?\b|AMOUNT|\bDUE\b|PAYABLE|ROUND|INCL|\bJUMLAH\b|\bBESAR\b",
+                r"GRAND|\bNETT?\b|AMOUNT|\bDUE\b|PAYABLE|ROUND|INCL|\bJUMLAH\b|\bBESAR\b|DIBAYAR",
             )?,
             not_a_total: re(r"\bQTY\b|QUANTITY|\bITEMS?\b|SAVING|EXCL|BEFORE|POINTS?\b")?,
             tax: re(r"\bTAX\b|\bSST\b|\bGST\b|\bVAT\b|\bCUKAI\b")?,
@@ -182,7 +186,7 @@ impl Labels {
             rounding: re(r"ROUND|\bADJ")?,
             discount: re(r"DISCOUNT|\bDISC\b|VOUCHER|\bLESS\b")?,
             payment: re(
-                r"\bCASH\b|\bTUNAI\b|\bCARD\b|\bVISA\b|MASTER|\bAMEX\b|\bDEBIT\b|\bCREDIT\b|\bPAID\b|PAYMENT|TENDER|E-?WALLET|\bTNG\b|TOUCH\s*N\s*GO|GRABPAY|\bBOOST\b|DUITNOW|SHOPEEPAY|PAYNOW|\bNETS\b",
+                r"\bCASH\b|\bTUNAI\b|\bCARD\b|\bVISA\b|MASTER|\bAMEX\b|\bDEBIT\b|\bCREDIT\b|\bPAID\b|PAYMENT|\bDIBAYAR\b|TENDER|E-?WALLET|\bTNG\b|TOUCH\s*N\s*GO|GRABPAY|\bBOOST\b|DUITNOW|SHOPEEPAY|PAYNOW|\bNETS\b",
             )?,
             change: re(r"\bCHANGE\b|\bBAKI\b")?,
         })
@@ -553,7 +557,22 @@ impl LocalOcrExtractor {
             .map(|line| repair_amounts(&date_re.replace_all(line, " "), &token_re))
             .collect();
         let evidence = AmountEvidence::collect(&repaired, &labels, &number_re, exponent);
-        let total = evidence.total();
+        // No labelled total (an order or booking screen, say): offer the largest
+        // currency-marked amount, but only as a guess that still goes to review.
+        let currency_amount_re = re(CURRENCY_AMOUNT_PATTERN)?;
+        let unlabelled_total = if evidence.total().is_none() {
+            repaired
+                .iter()
+                .filter(|line| {
+                    labels.classify(line) == LineKind::Other && currency_amount_re.is_match(line)
+                })
+                .flat_map(|line| amounts_in(line, &number_re, exponent, false))
+                .filter(|amount| *amount > 0)
+                .max()
+        } else {
+            None
+        };
+        let total = evidence.total().or(unlabelled_total);
         let mut tax = evidence.taxes.last().copied();
         if tax.zip(total).is_some_and(|(a, b)| a > b) {
             tax = None;
@@ -564,6 +583,7 @@ impl LocalOcrExtractor {
         let total_confirmed = total.is_some_and(|t| evidence.confirms(t, exponent));
         let total_confidence = match total {
             None => 0.0,
+            Some(_) if unlabelled_total.is_some() => UNLABELLED_TOTAL_CONFIDENCE,
             Some(_) if total_confirmed => 0.97,
             Some(t) if clear_page && evidence.is_largest(t) => 0.9,
             Some(_) if evidence.totals.iter().any(|(s, _)| *s == 3) => 0.8,
@@ -615,7 +635,6 @@ impl LocalOcrExtractor {
         let registration_re = re(TRAILING_REGISTRATION_PATTERN)?;
         let entity_re = re(REGISTERED_ENTITY_PATTERN)?;
         let staff_re = re(STAFF_LABEL_PATTERN)?;
-        let currency_amount_re = re(CURRENCY_AMOUNT_PATTERN)?;
         let candidates: Vec<(usize, String)> = lines
             .iter()
             .take(8)
@@ -938,6 +957,81 @@ PAID 6.00";
         let out = run(text, "MYR");
         assert_eq!(out.total_amount_minor, Some(600));
         assert_eq!(out.suggested_category.as_deref(), Some("Parking"));
+    }
+
+    #[test]
+    fn malay_amount_payable_label_is_the_total() {
+        // A bank/e-wallet style invoice: one amount, labelled in Malay.
+        let text = "\
+KEDAI RUNCIT ABC SDN BHD
+Jalan Ampang, 50450 Kuala Lumpur
+Tarikh: 27/09/2026
+Amaun Perlu Dibayar:                RM 84.80";
+        let out = run(text, "MYR");
+        assert_eq!(out.total_amount_minor, Some(8480));
+        assert_eq!(out.currency.as_deref(), Some("MYR"));
+        assert!(conf(&out, "total") >= 0.9);
+    }
+
+    #[test]
+    fn malay_amount_payable_is_confirmed_by_cash_and_change() {
+        let text = "\
+KEDAI RUNCIT ABC SDN BHD
+27/09/2026
+Amaun Perlu Dibayar RM 84.80
+Tunai RM 100.00
+Baki RM 15.20";
+        let out = run(text, "MYR");
+        assert_eq!(out.total_amount_minor, Some(8480));
+        assert_eq!(conf(&out, "total"), 0.97);
+    }
+
+    #[test]
+    fn amount_paid_in_malay_is_payment_evidence_not_the_total() {
+        let text = "\
+KEDAI RUNCIT ABC SDN BHD
+27/09/2026
+Amaun Perlu Dibayar RM 84.80
+Amaun Dibayar RM 100.00";
+        let out = run(text, "MYR");
+        assert_eq!(out.total_amount_minor, Some(8480));
+    }
+
+    #[test]
+    fn a_lone_unlabelled_currency_amount_is_offered_for_review_only() {
+        // A booking/order screen: no TOTAL label, several amounts, the order
+        // value is the largest currency amount.
+        let text = "\
+Hotel booking confirmed
+27/09/2026
+You've earned: 99 Trip Coins (RM 9.99) >
+RM 999.99";
+        let out = run(text, "MYR");
+        assert_eq!(out.total_amount_minor, Some(99999));
+        assert!(
+            conf(&out, "total") < 0.85,
+            "a guess must never skip review, got {}",
+            conf(&out, "total")
+        );
+        assert!(!would_be_ready(&out));
+    }
+
+    #[test]
+    fn a_labelled_total_beats_the_unlabelled_amount_fallback() {
+        let text = "\
+CAFE
+27/09/2026
+Nasi lemak RM 30.00
+TOTAL RM 12.00";
+        let out = run(text, "MYR");
+        assert_eq!(out.total_amount_minor, Some(1200));
+    }
+
+    #[test]
+    fn no_amounts_at_all_still_gives_no_total() {
+        let out = run("CAFE\n27/09/2026\nThank you", "MYR");
+        assert_eq!(out.total_amount_minor, None);
+        assert_eq!(conf(&out, "total"), 0.0);
     }
 
     #[test]
