@@ -2,6 +2,7 @@
   "expo": {
     "name": "Folio",
     "slug": "folio-expense",
+    "owner": "squadralennox",
     "version": "0.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -51,6 +52,9 @@
     "experiments": {
       "typedRoutes": true,
       "tsconfigPaths": false
+    },
+    "runtimeVersion": {
+      "policy": "fingerprint"
     }
   }
 }
