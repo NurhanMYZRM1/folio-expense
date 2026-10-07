@@ -60,9 +60,9 @@ reach a binary with different native code. Two files tune what is hashed:
   `FolioFFI.xcframework`. It is hashed through the Rust sources instead, because compiled output
   differs between your Mac and EAS and would otherwise make `eas update` and the build disagree.
 
-To see the current hash: `npx fingerprint fingerprint:generate .`.
-If you change Swift, a native dependency, a config plugin, or the Rust core, ship a new build
-(`eas build`) rather than only `eas update`. Updates published for the old hash simply do not
+`eas.json` is hashed too. To see the current hash: `npx fingerprint fingerprint:generate .`.
+If you change Swift, a native dependency, a config plugin, the Rust core, or `eas.json`, ship a
+new build (`eas build`) rather than only `eas update`. Updates published for the old hash simply do not
 reach the new binary.
 
 ### Rust core on EAS (iOS)
