@@ -52,7 +52,7 @@ Leases use random tokens; stale completions cannot overwrite the current job. He
 
 ## Extraction and manual values
 
-- Online uses strict JSON Schema, bounded response bytes, a 45-second timeout, HTTPS, and no redirects.
+- Online uses strict JSON Schema, bounded response bytes, a 90-second timeout (vision models on busy or free tiers have been seen answering in about a minute; a timeout or a provider 5xx falls back to local OCR with a message that says which it was), HTTPS, and no redirects.
 - Rust deserializes with unknown-field rejection and independently validates dates, currency, categories, amounts, tax/total relationship, and confidence bounds.
 - A later extraction merges only fields whose source is not `manual`, including protection for manually cleared values. Optimistic versions reject stale editor writes with a reload message.
 - Low-confidence core fields result in `needs_review`. A complete high-confidence extraction can be ready. Confidence indicates extraction certainty, not policy approval.
