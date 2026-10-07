@@ -55,6 +55,14 @@
     },
     "runtimeVersion": {
       "policy": "fingerprint"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "5010a68a-a7af-4b99-93c9-900a0e0292ee"
+      }
+    },
+    "updates": {
+      "url": "https://u.expo.dev/5010a68a-a7af-4b99-93c9-900a0e0292ee"
     }
   }
 }
