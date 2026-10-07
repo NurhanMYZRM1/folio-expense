@@ -1,0 +1,5 @@
+# The Rust core is hashed from its sources (see fingerprint.config.js), not from
+# the compiled output. The xcframework is built locally by `npm run rust:ios` or
+# on EAS by the eas-build-pre-install hook, and its bytes can differ between
+# machines, which would give `eas update` and the EAS build different fingerprints.
+modules/folio-core/ios/Frameworks/**/*
