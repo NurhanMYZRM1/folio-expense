@@ -71,6 +71,7 @@ pub fn dispatch(s: &AppService, command: &str, a: Value) -> Result<Value> {
                 .ok_or_else(|| AppError::invalid("Expected string"))?
         )),
         "retry_job" => out!(s.retry_job(id())),
+        "online_available" => out!(s.online_available()),
         "try_online" => out!(s.try_online(id(), token(), arg!("images"))),
         "complete_ocr" => out!(s.complete_ocr(
             id(),

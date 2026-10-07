@@ -21,6 +21,8 @@ pub struct AppService {
     pub paths: AppPaths,
     pub(crate) secrets: Arc<dyn SecretStore>,
     pub(crate) rates: Arc<dyn exchange_rates::RateSource>,
+    /// Skips the AI provider for a while after it fails (see `extraction::backoff`).
+    pub(crate) online_backoff: Mutex<extraction::backoff::OnlineBackoff>,
 }
 impl AppService {
     pub fn open(root: PathBuf, secrets: Arc<dyn SecretStore>) -> Result<Self> {
@@ -31,6 +33,7 @@ impl AppService {
             paths,
             secrets,
             rates: Arc::new(exchange_rates::FrankfurterRates),
+            online_backoff: Mutex::default(),
         };
         service.recover_jobs()?;
         service.recover_storage()?;

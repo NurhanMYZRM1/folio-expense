@@ -25,7 +25,7 @@ Durable SQLite jobs → leased renderer job dispatcher
 
 The renderer handles portable WASM OCR and PDF rendering; it cannot directly mutate SQLite, read arbitrary local files, or retrieve stored credentials. Business rules, state changes, money validation, optimistic versions, duplicate checks, final extraction merges, and file writes live in Rust. `ReceiptExtractor` is a Rust provider interface independent of OpenAI/Tesseract. Offline OCR produces raw text; the Rust adapter normalizes it. Online extraction is initiated by Rust only after reading current user preferences and the OS keychain.
 
-Full-size receipt content is requested only by the detail viewer, a worker, or an appendix export. Tables request small WebP thumbnails. PDF.js is dynamically loaded when a PDF or worker actually needs it. Heavy OCR and PDF assembly run in Web Workers; all filesystem/database/network calls run on Tauri's blocking pool. A single worker serializes processing to bound memory and CPU use. Metadata queries release the DB lock before network calls.
+Full-size receipt content is requested only by the detail viewer, a worker, or an appendix export. Tables request small WebP thumbnails. PDF.js is dynamically loaded when a PDF or worker actually needs it. Heavy OCR and PDF assembly run in Web Workers; all filesystem/database/network calls run on Tauri's blocking pool. The job runner works on up to three jobs at once (each slot lazily owns one Tesseract worker, freed when the queue is empty) and builds claim PDFs one at a time; the Rust job claim hands out extraction and PDF jobs before previews, oldest first. Parallelism is bounded to keep memory and CPU use predictable. Metadata queries release the DB lock before network calls.
 
 ## Source of truth and schema
 
@@ -52,7 +52,7 @@ Leases use random tokens; stale completions cannot overwrite the current job. He
 
 ## Extraction and manual values
 
-- Online uses strict JSON Schema, bounded response bytes, a 90-second timeout (vision models on busy or free tiers have been seen answering in about a minute; a timeout or a provider 5xx falls back to local OCR with a message that says which it was), HTTPS, and no redirects.
+- Online uses strict JSON Schema, bounded response bytes, a 90-second timeout (vision models on busy or free tiers have been seen answering in about a minute; a timeout or a provider 5xx falls back to local OCR with a message that says which it was), HTTPS, and no redirects. After a provider failure the Rust service pauses online extraction so the receipts that follow are read locally at once instead of each waiting out a timeout: a refused key, model or endpoint (401/403/404) pauses it until Settings or the credential change; a timeout, 429, 5xx or network failure pauses it for three minutes, after which the next receipt probes the provider again. The renderer asks `online_available` before rendering pages for the AI.
 - Rust deserializes with unknown-field rejection and independently validates dates, currency, categories, amounts, tax/total relationship, and confidence bounds.
 - A later extraction merges only fields whose source is not `manual`, including protection for manually cleared values. Optimistic versions reject stale editor writes with a reload message.
 - Low-confidence core fields result in `needs_review`. A complete high-confidence extraction can be ready. Confidence indicates extraction certainty, not policy approval.

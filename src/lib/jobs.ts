@@ -9,7 +9,6 @@ type Callbacks = {
   notify: (message: string, error?: boolean) => void;
   progress: (message: string | null) => void;
 };
-let active = false;
 async function renderReport(
   snapshot: ExportSnapshot,
   receipts: ReceiptContent[],
@@ -39,22 +38,34 @@ async function renderReport(
     worker.postMessage({ snapshot, receipts, font }, [font.buffer]);
   });
 }
+const MAX_PARALLEL = 3;
+type Slot = { busy: boolean; ocr?: OcrWorker; progress: string | null };
 export function startJobRunner(callbacks: Callbacks): () => void {
   let stopped = false,
-    ocr: OcrWorker | undefined,
-    current: JobLease | null = null;
-  const progress = (text: string | null) => {
-    if (!stopped) callbacks.progress(text);
+    pumping = false,
+    pumpAgain = false,
+    onlineUnavailableNotified = false,
+    pdfQueue: Promise<unknown> = Promise.resolve();
+  // Receipts are read a few at a time: online requests mostly wait on the
+  // network, and each slot owns its own (lazily created) OCR worker.
+  const slots: Slot[] = Array.from({ length: MAX_PARALLEL }, () => ({
+    busy: false,
+    progress: null,
+  }));
+  const publish = () => {
+    if (stopped) return;
+    const lines = slots.map((s) => s.progress).filter((p): p is string => !!p);
+    callbacks.progress(
+      lines.length > 1 ? `${lines[0]} (+${lines.length - 1} more)` : (lines[0] ?? null),
+    );
   };
-  const tick = async () => {
-    if (stopped || active) return;
-    active = true;
+  const runJob = async (slot: Slot, current: JobLease) => {
+    const progress = (text: string | null) => {
+      slot.progress = text;
+      publish();
+    };
     let heartbeat: ReturnType<typeof setInterval> | undefined;
-    let didWork = false;
     try {
-      current = await api.takeJob();
-      if (!current) return;
-      didWork = true;
       const { job, token, receiptId } = current;
       const id = job.id;
       heartbeat = setInterval(() => void api.heartbeat(id, token).catch(() => {}), 20_000);
@@ -67,20 +78,26 @@ export function startJobRunner(callbacks: Callbacks): () => void {
       );
       await callbacks.refresh();
       if (job.jobType === 'generate_pdf') {
-        const snapshot = await api.exportSnapshot(id, token),
-          receipts: ReceiptContent[] = [];
-        if (snapshot.includeReceipts) {
-          for (const receipt of snapshot.receipts) {
-            receipts.push(await api.receipt(receipt.id));
-            if (receipts.reduce((sum, r) => sum + r.base64.length, 0) > 120 * 1024 * 1024)
-              throw new Error(
-                'Receipt appendix exceeds 90 MB. Split this claim or turn off the appendix.',
-              );
+        // Report building is memory-heavy: one at a time even while receipts are read in parallel.
+        const buildReport = async () => {
+          const snapshot = await api.exportSnapshot(id, token),
+            receipts: ReceiptContent[] = [];
+          if (snapshot.includeReceipts) {
+            for (const receipt of snapshot.receipts) {
+              receipts.push(await api.receipt(receipt.id));
+              if (receipts.reduce((sum, r) => sum + r.base64.length, 0) > 120 * 1024 * 1024)
+                throw new Error(
+                  'Receipt appendix exceeds 90 MB. Split this claim or turn off the appendix.',
+                );
+            }
           }
-        }
-        const bytes = await renderReport(snapshot, receipts);
-        await api.completePdf(id, token, encodeBase64(bytes));
-        callbacks.notify('Claim PDF saved locally. Open it from the claim’s generated reports.');
+          const bytes = await renderReport(snapshot, receipts);
+          await api.completePdf(id, token, encodeBase64(bytes));
+          callbacks.notify('Claim PDF saved locally. Open it from the claim’s generated reports.');
+        };
+        const turn = pdfQueue.then(buildReport, buildReport);
+        pdfQueue = turn.catch(() => {});
+        await turn;
       } else {
         if (!receiptId) throw new Error('The receipt for this job is missing.');
         const receipt = await api.receipt(receiptId);
@@ -91,7 +108,8 @@ export function startJobRunner(callbacks: Callbacks): () => void {
         } else {
           const settings = await api.settings();
           let completed = false;
-          if (settings.onlineEnabled) {
+          if (await api.onlineAvailable()) {
+            onlineUnavailableNotified = false;
             progress('Trying online AI extraction');
             const images: string[] = [];
             for await (const canvas of receiptPages(receipt)) {
@@ -99,14 +117,19 @@ export function startJobRunner(callbacks: Callbacks): () => void {
               canvas.width = canvas.height = 0;
             }
             completed = await api.tryOnline(id, token, images);
+          } else if (settings.onlineEnabled && !onlineUnavailableNotified) {
+            onlineUnavailableNotified = true;
+            callbacks.notify(
+              'Online AI is unavailable right now (a recent provider error, or no key), so receipts are read locally. It is retried automatically.',
+            );
           }
           if (!completed) {
             if (!settings.offlineOcrEnabled)
               throw new Error(
                 'Automatic extraction is unavailable. The receipt was saved locally and can still be entered manually.',
               );
-            if (!ocr) {
-              ocr = await createWorker('eng', OEM.LSTM_ONLY, {
+            if (!slot.ocr) {
+              const created = await createWorker('eng', OEM.LSTM_ONLY, {
                 workerPath: `${location.origin}/ocr/worker.min.js`,
                 corePath: `${location.origin}/ocr`,
                 langPath: `${location.origin}/ocr`,
@@ -118,8 +141,14 @@ export function startJobRunner(callbacks: Callbacks): () => void {
                     progress(`Local OCR · ${Math.round(status.progress * 100)}%`);
                 },
               });
-              // The page layout mode is set per pass below.
-              await ocr.setParameters({ preserve_interword_spaces: '1' });
+              try {
+                // The page layout mode is set per pass below.
+                await created.setParameters({ preserve_interword_spaces: '1' });
+              } catch (error) {
+                void created.terminate();
+                throw error;
+              }
+              slot.ocr = created;
             }
             let rawText = '',
               page = 0,
@@ -127,7 +156,7 @@ export function startJobRunner(callbacks: Callbacks): () => void {
               // text each page holds (a blank back page shouldn't count).
               weightedConfidence = 0,
               textLength = 0;
-            const worker = ocr;
+            const worker = slot.ocr;
             const read = async (image: HTMLCanvasElement, mode: PSM): Promise<OcrPass> => {
               await worker.setParameters({ tessedit_pageseg_mode: mode });
               let timer: ReturnType<typeof setTimeout> | undefined;
@@ -178,28 +207,66 @@ export function startJobRunner(callbacks: Callbacks): () => void {
       }
     } catch (error) {
       const message = errorMessage(error);
-      if (current) {
-        await api.failJob(current.job.id, current.token, message).catch(() => {});
-        if (ocr) {
-          await ocr.terminate();
-          ocr = undefined;
-        }
+      await api.failJob(current.job.id, current.token, message).catch(() => {});
+      if (slot.ocr) {
+        await slot.ocr.terminate();
+        slot.ocr = undefined;
       }
       callbacks.notify(message, true);
     } finally {
       if (heartbeat) clearInterval(heartbeat);
-      current = null;
-      active = false;
       progress(null);
-      if (!stopped && didWork) await callbacks.refresh();
-      else if (stopped && ocr) {
-        await ocr.terminate();
-        ocr = undefined;
+      if (!stopped) await callbacks.refresh();
+      else if (slot.ocr) {
+        await slot.ocr.terminate();
+        slot.ocr = undefined;
       }
     }
   };
-  const interval = setInterval(() => void tick(), 1500);
-  void tick();
+  // Hands queued jobs to free slots. Calls that arrive while it is already
+  // running are folded into one more pass.
+  const pump = async () => {
+    if (pumping) {
+      pumpAgain = true;
+      return;
+    }
+    pumping = true;
+    try {
+      do {
+        pumpAgain = false;
+        for (const slot of slots) {
+          if (stopped) return;
+          if (slot.busy) continue;
+          slot.busy = true;
+          let lease: JobLease | null = null;
+          try {
+            lease = await api.takeJob();
+          } catch (error) {
+            callbacks.notify(errorMessage(error), true);
+          }
+          if (!lease) {
+            slot.busy = false;
+            // Nothing queued and nothing running: free the extra OCR workers' memory.
+            if (slots.every((s) => !s.busy))
+              for (const extra of slots.slice(1))
+                if (extra.ocr) {
+                  void extra.ocr.terminate();
+                  extra.ocr = undefined;
+                }
+            break;
+          }
+          void runJob(slot, lease).finally(() => {
+            slot.busy = false;
+            void pump();
+          });
+        }
+      } while (pumpAgain && !stopped);
+    } finally {
+      pumping = false;
+    }
+  };
+  const interval = setInterval(() => void pump(), 1500);
+  void pump();
   // Foreign receipts imported while offline are converted once rates can be
   // downloaded. Failures (still offline) are silent; the next round retries.
   const convert = async () => {
@@ -216,6 +283,6 @@ export function startJobRunner(callbacks: Callbacks): () => void {
     stopped = true;
     clearInterval(interval);
     clearInterval(conversions);
-    if (!current && ocr) void ocr.terminate();
+    for (const slot of slots) if (!slot.busy && slot.ocr) void slot.ocr.terminate();
   };
 }

@@ -471,3 +471,88 @@ test('Mark as ready approves an expense even when merchant, date and total are b
     await bridge.close();
   }
 });
+
+test('Save preferences returns to the top of the Settings page', async ({ page }) => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'folio-settings-e2e-'));
+  const bridge = new RustBridge(path.join(directory, 'app'));
+  await installBridge(page, bridge, []);
+  await page.goto('about:blank');
+  try {
+    await page.goto('/#/settings');
+    const save = page.getByRole('button', { name: 'Save preferences' });
+    await save.scrollIntoViewIfNeeded();
+    expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(200);
+    await save.click();
+    await expect(page.getByText('Preferences saved locally.')).toBeVisible();
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+    // Still on Settings, not sent to the home page.
+    await expect(page).toHaveURL(/#\/settings$/);
+    await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
+  } finally {
+    await page.goto('about:blank');
+    await bridge.close();
+  }
+});
+
+test('several receipts are read at the same time', async ({ page }) => {
+  test.setTimeout(240_000);
+  const directory = await mkdtemp(path.join(tmpdir(), 'folio-parallel-e2e-'));
+  await page.goto('/');
+  const receipts: string[] = [];
+  for (const [name, merchant, lines] of [
+    ['a.png', 'KOPI HOUSE', ['Subtotal 79.72', 'Tax 4.78', 'TOTAL MYR 84.50']],
+    ['b.png', 'CITY PARKING', ['Parking 2 hours', 'TOTAL MYR 6.00', 'CASH 6.00']],
+    ['c.png', 'BOOK STORE', ['Notebook 12.00', 'Pen 3.50', 'TOTAL MYR 15.50']],
+  ] as const) {
+    const data = await page.evaluate(
+      ([merchant, lines]) => {
+        const c = document.createElement('canvas');
+        c.width = 850;
+        c.height = 900;
+        const x = c.getContext('2d')!;
+        x.fillStyle = 'white';
+        x.fillRect(0, 0, 850, 900);
+        x.fillStyle = '#111';
+        x.font = 'bold 44px Arial';
+        x.fillText(merchant, 80, 100);
+        x.font = '30px Arial';
+        x.fillText('Date: 2026-09-27', 80, 220);
+        lines.forEach((line, i) => x.fillText(line, 80, 340 + i * 80));
+        return c.toDataURL('image/png').split(',')[1];
+      },
+      [merchant, lines] as [string, readonly string[]],
+    );
+    const file = path.join(directory, name);
+    await writeFile(file, Buffer.from(data, 'base64'));
+    receipts.push(file);
+  }
+  const bridge = new RustBridge(path.join(directory, 'app'));
+  await installBridge(page, bridge, receipts);
+  await page.goto('about:blank');
+  try {
+    await page.goto('/#/import');
+    await page.getByRole('button', { name: /Drag receipts into your workspace/ }).click();
+    let mostRunning = 0;
+    let done = false;
+    const started = Date.now();
+    while (!done && Date.now() - started < 200_000) {
+      await page.waitForTimeout(100);
+      const jobs = await bridge.call<Job[]>('list_jobs');
+      mostRunning = Math.max(mostRunning, jobs.filter((j) => j.status === 'running').length);
+      const expenses = await bridge.call<Expense[]>('list_expenses');
+      done =
+        expenses.length === 3 &&
+        expenses.every((e) => e.status === 'ready' || e.status === 'needs_review') &&
+        jobs.every((j) => j.status === 'completed');
+    }
+    expect(done).toBe(true);
+    expect(mostRunning).toBeGreaterThanOrEqual(2);
+    const expenses = await bridge.call<Expense[]>('list_expenses');
+    expect(expenses.map((e) => e.totalAmountMinor).sort((a, b) => a! - b!)).toEqual([
+      600, 1550, 8450,
+    ]);
+  } finally {
+    await page.goto('about:blank');
+    await bridge.close();
+  }
+});

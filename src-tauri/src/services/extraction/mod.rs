@@ -1,3 +1,4 @@
+pub mod backoff;
 pub mod normalizer;
 pub mod offline;
 pub mod online;

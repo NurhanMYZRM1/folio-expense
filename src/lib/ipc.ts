@@ -58,6 +58,7 @@ export const api = {
   failJob: (id: string, token: string, message: string) =>
     call<void>('fail_job', { id, token, message }),
   retryJob: (id: string) => call<void>('retry_job', { id }),
+  onlineAvailable: () => call<boolean>('online_available'),
   tryOnline: (id: string, token: string, images: string[]) =>
     call<boolean>('try_online', { id, token, images }),
   completeOcr: (id: string, token: string, rawText: string, ocrConfidence: number | null) =>

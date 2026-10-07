@@ -9,8 +9,11 @@ use crate::{
     repository::{self, expense_repository as expenses},
     services::{
         extraction::{
-            normalizer, offline::LocalOcrExtractor, online::OnlineVisionExtractor, sanitize,
-            ExtractionInput, ReceiptExtractor,
+            backoff::{FailureKind, OnlineBackoff},
+            normalizer,
+            offline::LocalOcrExtractor,
+            online::OnlineVisionExtractor,
+            sanitize, ExtractionInput, ReceiptExtractor,
         },
         AppService,
     },
@@ -73,7 +76,7 @@ impl AppService {
         // Heartbeats also recover a crashed/reloaded renderer without requiring a desktop restart.
         tx.execute("UPDATE jobs SET status=CASE WHEN attempts>=3 THEN 'failed' ELSE 'pending' END,lease_token=NULL,last_error='Worker interrupted; retrying safely.' WHERE status='running' AND updated_at < ?1",[(chrono::Utc::now()-chrono::Duration::minutes(2)).to_rfc3339_opts(chrono::SecondsFormat::Millis,true)])?;
         tx.execute("UPDATE expenses SET status='needs_review',version=version+1,updated_at=?1 WHERE status='extracting' AND NOT EXISTS(SELECT 1 FROM jobs WHERE jobs.entity_id=expenses.id AND job_type='extract_receipt' AND status IN ('pending','running'))",[now()])?;
-        let job=tx.query_row(&format!("{JOB_SELECT} WHERE status='pending' AND job_type!='future_sync' ORDER BY created_at,CASE job_type WHEN 'generate_thumbnail' THEN 0 ELSE 1 END,id LIMIT 1"),[],job_row).optional()?;
+        let job=tx.query_row(&format!("{JOB_SELECT} WHERE status='pending' AND job_type!='future_sync' ORDER BY CASE job_type WHEN 'generate_thumbnail' THEN 1 ELSE 0 END,created_at,id LIMIT 1"),[],job_row).optional()?;
         let Some(mut job) = job else {
             tx.commit()?;
             return Ok(None);
@@ -160,6 +163,23 @@ impl AppService {
         tx.commit()?;
         Ok(())
     }
+    /// Whether the renderer should try online extraction for the next receipt:
+    /// switched on, a credential stored, and the provider not paused after a
+    /// recent failure.
+    pub fn online_available(&self) -> Result<bool> {
+        if !self.settings()?.online_enabled {
+            return Ok(false);
+        }
+        Ok(matches!(self.secrets.get(), Ok(Some(_))) && !self.online_paused())
+    }
+    pub(crate) fn online_backoff(&self) -> std::sync::MutexGuard<'_, OnlineBackoff> {
+        self.online_backoff
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+    fn online_paused(&self) -> bool {
+        self.online_backoff().is_paused(std::time::Instant::now())
+    }
     pub fn try_online(&self, id: &str, token: &str, images: Vec<String>) -> Result<bool> {
         {
             let db = self.conn()?;
@@ -173,6 +193,19 @@ impl AppService {
             Ok(Some(v)) => v,
             _ => return Ok(false),
         };
+        if self.online_paused() {
+            // The provider failed a moment ago: read this receipt locally now
+            // instead of waiting out another timeout.
+            let db = self.conn()?;
+            db.execute(
+                "UPDATE jobs SET last_error=?1 WHERE id=?2",
+                params![
+                    "AI skipped: the provider failed a moment ago, so this receipt is read locally. It is retried shortly.",
+                    id
+                ],
+            )?;
+            return Ok(false);
+        }
         if images.is_empty()
             || images.len() > 30
             || images.iter().map(String::len).sum::<usize>() > 60 * 1024 * 1024
@@ -198,10 +231,15 @@ impl AppService {
             ocr_confidence: None,
         }) {
             Ok(result) => {
+                self.online_backoff().record_success();
                 self.complete_extraction(id, token, result, FieldSource::OnlineAi, None)?;
                 Ok(true)
             }
             Err(error) => {
+                if let Some(kind) = FailureKind::from_error(&error) {
+                    self.online_backoff()
+                        .record_failure(kind, std::time::Instant::now());
+                }
                 let mut db = self.conn()?;
                 let tx = db.transaction()?;
                 let job = lease(&tx, id, token, None)?;

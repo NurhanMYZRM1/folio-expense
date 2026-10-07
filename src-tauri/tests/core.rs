@@ -741,6 +741,92 @@ fn mark_ready_still_refuses_values_that_cannot_be_stored() {
     );
 }
 #[test]
+fn extraction_jobs_are_claimed_before_previews() {
+    let (t, s) = workspace();
+    import(&t, &s);
+    import_another(&t, &s, 90);
+    let order: Vec<String> = std::iter::from_fn(|| s.take_job().unwrap())
+        .map(|j| j.job.job_type)
+        .collect();
+    assert_eq!(
+        order,
+        [
+            "extract_receipt",
+            "extract_receipt",
+            "generate_thumbnail",
+            "generate_thumbnail"
+        ],
+        "the reading you are waiting for comes before cosmetic previews"
+    );
+}
+fn enable_online(s: &AppService, base_url: &str) {
+    let mut settings = s.settings().unwrap();
+    settings.online_enabled = true;
+    settings.api_base_url = base_url.into();
+    s.save_settings(settings).unwrap();
+    s.set_credential("test-key".into()).unwrap();
+}
+fn png_input() -> Vec<String> {
+    vec!["data:image/png;base64,AAAA".into()]
+}
+#[test]
+fn a_failing_provider_is_skipped_for_the_receipts_that_follow() {
+    let (t, s) = workspace();
+    // Nothing listens here, so the first attempt fails quickly.
+    enable_online(&s, "https://127.0.0.1:9");
+    assert!(s.online_available().unwrap());
+
+    import(&t, &s);
+    let first = extraction_job(&s);
+    assert!(!s
+        .try_online(&first.job.id, &first.token, png_input())
+        .unwrap());
+    assert!(
+        !s.online_available().unwrap(),
+        "one provider failure pauses online extraction"
+    );
+
+    import_another(&t, &s, 91);
+    let second = extraction_job(&s);
+    let started = std::time::Instant::now();
+    assert!(!s
+        .try_online(&second.job.id, &second.token, png_input())
+        .unwrap());
+    assert!(
+        started.elapsed() < std::time::Duration::from_millis(500),
+        "a paused provider is not contacted at all"
+    );
+    let job = s
+        .jobs()
+        .unwrap()
+        .into_iter()
+        .find(|j| j.id == second.job.id)
+        .unwrap();
+    assert!(
+        job.last_error.unwrap_or_default().contains("skipped"),
+        "the job says why the AI was not used"
+    );
+
+    // Saving settings (or a new key) lifts the pause.
+    s.save_settings(s.settings().unwrap()).unwrap();
+    assert!(s.online_available().unwrap());
+    s.try_online(&first.job.id, &first.token, png_input()).ok();
+    assert!(!s.online_available().unwrap());
+    s.set_credential("another-key".into()).unwrap();
+    assert!(s.online_available().unwrap());
+}
+#[test]
+fn online_is_unavailable_without_a_credential_or_when_switched_off() {
+    let (_t, s) = workspace();
+    assert!(!s.online_available().unwrap(), "off by default");
+    let mut settings = s.settings().unwrap();
+    settings.online_enabled = true;
+    s.save_settings(settings).unwrap();
+    assert!(!s.online_available().unwrap(), "no key stored");
+    s.set_credential("k".into()).unwrap();
+    assert!(s.online_available().unwrap());
+}
+#[test]
 fn crash_recovery_invalidates_old_lease_and_preserves_data() {
     let (t, s) = workspace();
     let id = import(&t, &s);
@@ -811,8 +897,10 @@ fn png_thumbnail_is_reencoded_as_webp_for_webkit() {
     use base64::Engine;
     let (t, s) = workspace();
     let id = import(&t, &s);
-    let j = s.take_job().unwrap().unwrap();
-    assert_eq!(j.job.job_type, "generate_thumbnail");
+    // Extraction is claimed first; the preview job follows.
+    let j = std::iter::from_fn(|| s.take_job().unwrap())
+        .find(|j| j.job.job_type == "generate_thumbnail")
+        .unwrap();
     let bytes = fs::read(receipt(&t)).unwrap();
     s.complete_thumbnail(
         &j.job.id,

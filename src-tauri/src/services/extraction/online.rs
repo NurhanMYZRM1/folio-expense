@@ -218,10 +218,14 @@ impl ReceiptExtractor for OnlineVisionExtractor<'_> {
                 AppError::new("NetworkUnavailable", request_error_message(e.is_timeout()))
             })?;
         if !response.status().is_success() {
-            return Err(AppError::new(
-                "AiProviderError",
-                provider_status_message(response.status().as_u16()),
-            ));
+            let status = response.status().as_u16();
+            // A refused key, model or endpoint keeps failing until Settings change.
+            let code = if matches!(status, 401 | 403 | 404) {
+                "AiProviderRejected"
+            } else {
+                "AiProviderError"
+            };
+            return Err(AppError::new(code, provider_status_message(status)));
         }
         let mut body = Vec::new();
         response
