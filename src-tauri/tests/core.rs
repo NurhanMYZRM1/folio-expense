@@ -680,6 +680,67 @@ fn receipt_values_stay_editable_after_the_claim_is_submitted_or_archived() {
     assert!(s.set_claim_expense(&claim.id, &id, false).is_err());
 }
 #[test]
+fn mark_ready_is_never_blocked_by_blank_fields() {
+    let (_t, s) = workspace();
+    let id = s.create_expense().unwrap().id;
+    // Nothing but a category: no merchant, date, total or currency.
+    let blank = ExpenseEdit {
+        id: id.clone(),
+        version: s.expense(&id).unwrap().version,
+        occurred_at: None,
+        merchant_name: None,
+        premises: None,
+        total_amount_minor: None,
+        tax_amount_minor: None,
+        currency: None,
+        category: "Meals".into(),
+        description: String::new(),
+        mark_ready: true,
+    };
+    let saved = s.edit_expense(blank).unwrap();
+    assert_eq!(saved.status, ExpenseStatus::Ready);
+    assert!(saved.merchant_name.is_none() && saved.occurred_at.is_none());
+    assert!(saved.total_amount_minor.is_none());
+
+    // A ready expense with blanks still goes through a claim, a PDF and a CSV.
+    let mut with_currency = edit(&s, &id);
+    with_currency.merchant_name = None;
+    with_currency.occurred_at = None;
+    with_currency.total_amount_minor = None;
+    with_currency.tax_amount_minor = None;
+    s.edit_expense(with_currency).unwrap();
+    assert_eq!(s.expense(&id).unwrap().status, ExpenseStatus::Ready);
+    let claim = s.create_claim("Blanks".into(), "MYR".into()).unwrap();
+    s.set_claim_expense(&claim.id, &id, true).unwrap();
+    s.request_pdf(&claim.id).unwrap();
+    assert!(s.export_claim_csv(&claim.id).is_ok());
+    s.transition_claim(&claim.id, ClaimStatus::Submitted)
+        .unwrap();
+}
+#[test]
+fn mark_ready_still_refuses_values_that_cannot_be_stored() {
+    let (_t, s) = workspace();
+    let id = s.create_expense().unwrap().id;
+    let mut bad_date = edit(&s, &id);
+    bad_date.occurred_at = Some("2026-13-45".into());
+    assert!(s.edit_expense(bad_date).is_err());
+    let mut tax_over_total = edit(&s, &id);
+    tax_over_total.tax_amount_minor = Some(9_000);
+    tax_over_total.total_amount_minor = Some(8_450);
+    assert!(s.edit_expense(tax_over_total).is_err());
+    let mut bad_currency = edit(&s, &id);
+    bad_currency.currency = Some("ZZZ".into());
+    assert!(s.edit_expense(bad_currency).is_err());
+    let mut bad_category = edit(&s, &id);
+    bad_category.category = "Not a category".into();
+    assert!(s.edit_expense(bad_category).is_err());
+    assert_ne!(
+        s.expense(&id).unwrap().status,
+        ExpenseStatus::Ready,
+        "nothing was saved"
+    );
+}
+#[test]
 fn crash_recovery_invalidates_old_lease_and_preserves_data() {
     let (t, s) = workspace();
     let id = import(&t, &s);

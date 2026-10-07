@@ -440,3 +440,34 @@ test('a phone photo with a hand shadow over the totals still reads the total', a
     await bridge.close();
   }
 });
+
+test('Mark as ready approves an expense even when merchant, date and total are blank', async ({
+  page,
+}) => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'folio-blank-ready-e2e-'));
+  const bridge = new RustBridge(path.join(directory, 'app'));
+  await installBridge(page, bridge, []);
+  await page.goto('about:blank');
+  try {
+    await page.goto('/#/expenses');
+    await page.getByRole('button', { name: 'Manual expense' }).click();
+    await page.getByRole('button', { name: 'Mark as ready' }).click();
+    await expect(
+      page.getByText(
+        'Expense reviewed and ready to claim. No merchant, date, total set; reports will leave them blank.',
+      ),
+    ).toBeVisible();
+    await expect(page.locator('.inline-error')).toHaveCount(0);
+    const [expense] = await bridge.call<Expense[]>('list_expenses');
+    expect(expense.status).toBe('ready');
+    expect(expense.merchantName).toBeNull();
+    expect(expense.totalAmountMinor).toBeNull();
+    // A malformed amount is still refused rather than silently stored.
+    await page.getByLabel('Total', { exact: false }).first().fill('abc');
+    await page.getByRole('button', { name: 'Mark as ready' }).click();
+    await expect(page.locator('.inline-error')).toBeVisible();
+  } finally {
+    await page.goto('about:blank');
+    await bridge.close();
+  }
+});

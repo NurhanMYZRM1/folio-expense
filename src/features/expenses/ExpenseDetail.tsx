@@ -86,11 +86,19 @@ function Editor({ initial, reload }: { initial: Expense; reload: () => Promise<v
       setDirty(false);
       await refresh();
       await reload();
+      const blank = [
+        !form.merchant.trim() && 'merchant',
+        !form.date && 'date',
+        !form.total.trim() && 'total',
+      ].filter(Boolean);
+      const blankNote = blank.length
+        ? ` No ${blank.join(', ')} set; reports will leave ${blank.length > 1 ? 'them' : 'it'} blank.`
+        : '';
       notify(
         locked
-          ? 'Changes saved. Export the claim report again to include them.'
+          ? `Changes saved. Export the claim report again to include them.${blankNote}`
           : ready
-            ? 'Expense reviewed and ready to claim.'
+            ? `Expense reviewed and ready to claim.${blankNote}`
             : 'Expense saved on this device.',
       );
     } catch (e) {
