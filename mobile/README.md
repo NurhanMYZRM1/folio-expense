@@ -28,6 +28,7 @@ git diff app.json                   # expect extra.eas.projectId + updates.url; 
 
 ```bash
 npx eas-cli@latest build --profile development --platform ios   # dev client (internal)
+npx eas-cli@latest build --profile development-simulator --platform ios   # dev client for the iOS Simulator
 npx eas-cli@latest build --profile preview --platform ios       # internal test build
 npx eas-cli@latest build --profile production --platform ios    # store build, build number auto-increments
 npx eas-cli@latest update --channel preview --message "what changed"
@@ -41,6 +42,7 @@ run `npx eas-cli@latest device:create` once per device, then build.
 | Build profile | Distribution | Channel | Notes |
 |---|---|---|---|
 | `development` | internal | `development` | `developmentClient: true` |
+| `development-simulator` | internal | `development` | Extends `development` for the iOS Simulator (no Apple account needed) |
 | `preview` | internal | `preview` | |
 | `production` | store | `production` | `autoIncrement: true` |
 
