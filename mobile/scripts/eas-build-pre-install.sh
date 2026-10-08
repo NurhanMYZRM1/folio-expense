@@ -26,7 +26,8 @@ PATH="$HOME/.cargo/bin:$PATH"
 export PATH
 
 rustup --version
-sh scripts/build-rust-ios.sh
+# EAS builds the iOS simulator for arm64 and x86_64: include the Intel simulator slice.
+FOLIO_IOS_SIM_X86=1 sh scripts/build-rust-ios.sh
 
 test -d modules/folio-core/ios/Frameworks/FolioFFI.xcframework
 echo "eas-build-pre-install: FolioFFI.xcframework built."
