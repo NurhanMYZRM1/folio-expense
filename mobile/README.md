@@ -37,6 +37,17 @@ npx eas-cli@latest update --channel preview --message "what changed"
 Internal-distribution iOS builds (`development`, `preview`) install on registered devices only:
 run `npx eas-cli@latest device:create` once per device, then build.
 
+### Web landing page
+
+`web-landing/` is a small static page (what Folio is, and that the app itself is desktop and
+iPhone only) hosted on EAS Hosting at <https://folio-expense.expo.app>. It is not the app: the
+app's data layer is an iOS-only native module, so `expo export -p web` produces a blank page.
+Redeploy after editing it:
+
+```bash
+npx eas-cli@latest deploy --export-dir web-landing --prod
+```
+
 ### Profiles and channels
 
 | Build profile | Distribution | Channel | Notes |
