@@ -73,6 +73,8 @@ impl AppService {
             serde_json::json!({"onlineEnabled":s.online_enabled}),
         )?;
         tx.commit()?;
+        // A changed URL, model or key deserves a fresh try after a provider failure.
+        self.online_backoff().clear();
         Ok(s)
     }
     pub fn set_credential(&self, key: String) -> Result<()> {
@@ -80,10 +82,14 @@ impl AppService {
         if key.trim().is_empty() || key.len() > 4096 {
             return Err(AppError::invalid("Enter a valid API credential."));
         }
-        self.secrets.set(key.trim())
+        self.secrets.set(key.trim())?;
+        self.online_backoff().clear();
+        Ok(())
     }
     pub fn delete_credential(&self) -> Result<()> {
-        self.secrets.delete()
+        self.secrets.delete()?;
+        self.online_backoff().clear();
+        Ok(())
     }
     pub fn app_info(&self) -> Result<AppInfo> {
         Ok(AppInfo {

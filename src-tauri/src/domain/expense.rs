@@ -215,18 +215,8 @@ pub fn validate_values(edit: &ExpenseEdit) -> Result<()> {
             return Err(AppError::invalid("Tax cannot exceed the total."));
         }
     }
-    if edit.mark_ready
-        && (edit
-            .merchant_name
-            .as_ref()
-            .is_none_or(|v| v.trim().is_empty())
-            || edit.occurred_at.is_none()
-            || edit.total_amount_minor.is_none()
-            || edit.currency.is_none())
-    {
-        return Err(AppError::invalid(
-            "Merchant, date, total and currency are required to mark an expense ready.",
-        ));
-    }
+    // Marking ready is the user's approval: it is never refused because a
+    // field is blank (reports print "—" or leave the cell empty). Only values
+    // that cannot be stored are rejected above.
     Ok(())
 }

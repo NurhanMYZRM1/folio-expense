@@ -31,6 +31,10 @@ pub(super) async fn retry_job(s: Service<'_>, id: String) -> Result<()> {
     blocking(s, move |s| s.retry_job(&id)).await
 }
 #[tauri::command]
+pub(super) async fn online_available(s: Service<'_>) -> Result<bool> {
+    blocking(s, move |s| s.online_available()).await
+}
+#[tauri::command]
 pub(super) async fn try_online(
     s: Service<'_>,
     id: String,

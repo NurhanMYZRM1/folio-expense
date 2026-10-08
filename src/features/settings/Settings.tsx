@@ -62,6 +62,11 @@ export function Settings() {
       setForm(value);
       setInfo(await api.info());
       notify('Preferences saved locally.');
+      // The Save button sits at the bottom of a long page; bring the page back to its top.
+      window.scrollTo({
+        top: 0,
+        behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+      });
     } catch (e) {
       notify(errorMessage(e), true);
     } finally {

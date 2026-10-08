@@ -166,6 +166,32 @@ test('offline receipt → real Rust/SQLite → OCR → review → claim → PDF 
     expect((await bridge.call<Claim[]>('list_claims'))[0].id).toBe(claim.id);
     await page.getByLabel('Search expenses').fill('does not exist');
     await expect(page.getByText('No matching expenses')).toBeVisible();
+
+    // Values stay correctable once the claim is submitted, and only a real
+    // content change (not the submission itself) outdates an exported report.
+    await page.goto(`/#/claims/${claim.id}`);
+    await page.getByRole('button', { name: 'Mark submitted' }).click();
+    await expect(
+      page.getByText('Claim marked as submitted locally. No data was sent.'),
+    ).toBeVisible();
+    await expect(page.getByText('Saved locally · snapshot of claim at export time')).toBeVisible();
+    await expect(page.getByText('Outdated', { exact: false })).toHaveCount(0);
+    await page.goto(`/#/expenses/${expense.id}`);
+    await expect(page.getByText('You can still correct its values')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Mark as ready' })).toHaveCount(0);
+    await page.getByLabel('Merchant', { exact: false }).fill('Kopi House · corrected after submit');
+    await page.getByRole('button', { name: 'Save changes' }).click();
+    await expect(
+      page.getByText('Changes saved. Export the claim report again to include them.'),
+    ).toBeVisible();
+    [expense] = await bridge.call<Expense[]>('list_expenses');
+    expect(expense.merchantName).toBe('Kopi House · corrected after submit');
+    expect(expense.status).toBe('submitted');
+    await page.goto(`/#/claims/${claim.id}`);
+    await expect(
+      page.getByText('Outdated · the claim changed after this report was generated'),
+    ).toBeVisible();
+    await expect(page.getByText('Export a new PDF to include the latest values.')).toBeVisible();
   } finally {
     await page.goto('about:blank');
     await bridge.close();
@@ -409,6 +435,122 @@ test('a phone photo with a hand shadow over the totals still reads the total', a
     expect(expense.occurredAt).toBe('2026-09-27');
     expect(expense.currency).toBe('MYR');
     expect(expense.totalAmountMinor).toBe(28300);
+  } finally {
+    await page.goto('about:blank');
+    await bridge.close();
+  }
+});
+
+test('Mark as ready approves an expense even when merchant, date and total are blank', async ({
+  page,
+}) => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'folio-blank-ready-e2e-'));
+  const bridge = new RustBridge(path.join(directory, 'app'));
+  await installBridge(page, bridge, []);
+  await page.goto('about:blank');
+  try {
+    await page.goto('/#/expenses');
+    await page.getByRole('button', { name: 'Manual expense' }).click();
+    await page.getByRole('button', { name: 'Mark as ready' }).click();
+    await expect(
+      page.getByText(
+        'Expense reviewed and ready to claim. No merchant, date, total set; reports will leave them blank.',
+      ),
+    ).toBeVisible();
+    await expect(page.locator('.inline-error')).toHaveCount(0);
+    const [expense] = await bridge.call<Expense[]>('list_expenses');
+    expect(expense.status).toBe('ready');
+    expect(expense.merchantName).toBeNull();
+    expect(expense.totalAmountMinor).toBeNull();
+    // A malformed amount is still refused rather than silently stored.
+    await page.getByLabel('Total', { exact: false }).first().fill('abc');
+    await page.getByRole('button', { name: 'Mark as ready' }).click();
+    await expect(page.locator('.inline-error')).toBeVisible();
+  } finally {
+    await page.goto('about:blank');
+    await bridge.close();
+  }
+});
+
+test('Save preferences returns to the top of the Settings page', async ({ page }) => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'folio-settings-e2e-'));
+  const bridge = new RustBridge(path.join(directory, 'app'));
+  await installBridge(page, bridge, []);
+  await page.goto('about:blank');
+  try {
+    await page.goto('/#/settings');
+    const save = page.getByRole('button', { name: 'Save preferences' });
+    await save.scrollIntoViewIfNeeded();
+    expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(200);
+    await save.click();
+    await expect(page.getByText('Preferences saved locally.')).toBeVisible();
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+    // Still on Settings, not sent to the home page.
+    await expect(page).toHaveURL(/#\/settings$/);
+    await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
+  } finally {
+    await page.goto('about:blank');
+    await bridge.close();
+  }
+});
+
+test('several receipts are read at the same time', async ({ page }) => {
+  test.setTimeout(240_000);
+  const directory = await mkdtemp(path.join(tmpdir(), 'folio-parallel-e2e-'));
+  await page.goto('/');
+  const receipts: string[] = [];
+  for (const [name, merchant, lines] of [
+    ['a.png', 'KOPI HOUSE', ['Subtotal 79.72', 'Tax 4.78', 'TOTAL MYR 84.50']],
+    ['b.png', 'CITY PARKING', ['Parking 2 hours', 'TOTAL MYR 6.00', 'CASH 6.00']],
+    ['c.png', 'BOOK STORE', ['Notebook 12.00', 'Pen 3.50', 'TOTAL MYR 15.50']],
+  ] as const) {
+    const data = await page.evaluate(
+      ([merchant, lines]) => {
+        const c = document.createElement('canvas');
+        c.width = 850;
+        c.height = 900;
+        const x = c.getContext('2d')!;
+        x.fillStyle = 'white';
+        x.fillRect(0, 0, 850, 900);
+        x.fillStyle = '#111';
+        x.font = 'bold 44px Arial';
+        x.fillText(merchant, 80, 100);
+        x.font = '30px Arial';
+        x.fillText('Date: 2026-09-27', 80, 220);
+        lines.forEach((line, i) => x.fillText(line, 80, 340 + i * 80));
+        return c.toDataURL('image/png').split(',')[1];
+      },
+      [merchant, lines] as [string, readonly string[]],
+    );
+    const file = path.join(directory, name);
+    await writeFile(file, Buffer.from(data, 'base64'));
+    receipts.push(file);
+  }
+  const bridge = new RustBridge(path.join(directory, 'app'));
+  await installBridge(page, bridge, receipts);
+  await page.goto('about:blank');
+  try {
+    await page.goto('/#/import');
+    await page.getByRole('button', { name: /Drag receipts into your workspace/ }).click();
+    let mostRunning = 0;
+    let done = false;
+    const started = Date.now();
+    while (!done && Date.now() - started < 200_000) {
+      await page.waitForTimeout(100);
+      const jobs = await bridge.call<Job[]>('list_jobs');
+      mostRunning = Math.max(mostRunning, jobs.filter((j) => j.status === 'running').length);
+      const expenses = await bridge.call<Expense[]>('list_expenses');
+      done =
+        expenses.length === 3 &&
+        expenses.every((e) => e.status === 'ready' || e.status === 'needs_review') &&
+        jobs.every((j) => j.status === 'completed');
+    }
+    expect(done).toBe(true);
+    expect(mostRunning).toBeGreaterThanOrEqual(2);
+    const expenses = await bridge.call<Expense[]>('list_expenses');
+    expect(expenses.map((e) => e.totalAmountMinor).sort((a, b) => a! - b!)).toEqual([
+      600, 1550, 8450,
+    ]);
   } finally {
     await page.goto('about:blank');
     await bridge.close();

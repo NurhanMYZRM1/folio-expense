@@ -161,10 +161,42 @@ impl OnlineVisionExtractor<'_> {
     }
 }
 
+/// How long to wait for the provider. Vision models on busy or free tiers
+/// have been seen answering in about a minute.
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(90);
+
+/// A request that never produced a response: a slow provider is a different
+/// problem from an unreachable one.
+fn request_error_message(timed_out: bool) -> String {
+    if timed_out {
+        "The AI provider took too long to answer. Trying local OCR.".into()
+    } else {
+        "The AI provider could not be reached. Trying local OCR.".into()
+    }
+}
+
+/// The message shown (and stored on the job) when the provider answers with an
+/// error status. Common causes say what to change; the receipt always falls
+/// back to local OCR. Never includes the response body, which may echo input.
+fn provider_status_message(status: u16) -> String {
+    let cause = match status {
+        401 | 403 => format!(
+            "The AI provider rejected the API credential (HTTP {status}). Check Settings → API credential."
+        ),
+        404 => "The AI provider could not find that model or endpoint (HTTP 404). Check the vision model and API base URL in Settings.".into(),
+        429 => "The AI provider refused the request (HTTP 429): the account is out of credit or rate-limited.".into(),
+        500 | 502 | 503 | 504 => format!(
+            "The AI provider is temporarily unavailable or overloaded (HTTP {status}). Try again later or choose another vision model in Settings."
+        ),
+        _ => format!("The AI provider returned HTTP {status}."),
+    };
+    format!("{cause} Trying local OCR.")
+}
+
 impl ReceiptExtractor for OnlineVisionExtractor<'_> {
     fn extract(&self, input: &ExtractionInput<'_>) -> Result<Extraction> {
         let client = reqwest::blocking::Client::builder()
-            .timeout(Duration::from_secs(45))
+            .timeout(REQUEST_TIMEOUT)
             .connect_timeout(Duration::from_secs(8))
             .redirect(reqwest::redirect::Policy::none())
             .build()
@@ -182,20 +214,18 @@ impl ReceiptExtractor for OnlineVisionExtractor<'_> {
             .bearer_auth(self.credential)
             .json(&self.request_body(input))
             .send()
-            .map_err(|_| {
-                AppError::new(
-                    "NetworkUnavailable",
-                    "The AI provider could not be reached. Trying local OCR.",
-                )
+            .map_err(|e| {
+                AppError::new("NetworkUnavailable", request_error_message(e.is_timeout()))
             })?;
         if !response.status().is_success() {
-            return Err(AppError::new(
-                "AiProviderError",
-                format!(
-                    "The AI provider returned HTTP {}. Trying local OCR.",
-                    response.status().as_u16()
-                ),
-            ));
+            let status = response.status().as_u16();
+            // A refused key, model or endpoint keeps failing until Settings change.
+            let code = if matches!(status, 401 | 403 | 404) {
+                "AiProviderRejected"
+            } else {
+                "AiProviderError"
+            };
+            return Err(AppError::new(code, provider_status_message(status)));
         }
         let mut body = Vec::new();
         response
@@ -239,6 +269,44 @@ mod tests {
             model: "test-model",
             credential: "secret",
         }
+    }
+
+    #[test]
+    fn provider_failures_tell_the_user_what_to_fix() {
+        let m = |status| provider_status_message(status);
+        assert!(m(401).contains("API credential"), "{}", m(401));
+        assert!(m(401).contains("rejected"));
+        assert!(m(403).contains("API credential"));
+        assert!(m(404).contains("model") && m(404).contains("API base URL"));
+        assert!(m(429).contains("credit") || m(429).contains("rate"));
+        for status in [500, 502, 503, 504] {
+            let text = m(status);
+            assert!(text.contains(&format!("HTTP {status}")), "{text}");
+            assert!(
+                text.contains("temporarily unavailable") && text.contains("another"),
+                "a server-side failure is not 'could not be reached': {text}"
+            );
+        }
+        assert_eq!(
+            m(418),
+            "The AI provider returned HTTP 418. Trying local OCR."
+        );
+        for status in [401, 403, 404, 429, 503] {
+            assert!(m(status).ends_with("Trying local OCR."), "{status}");
+        }
+    }
+
+    #[test]
+    fn a_slow_provider_is_reported_as_slow_not_unreachable() {
+        let slow = request_error_message(true);
+        assert!(slow.contains("took too long"), "{slow}");
+        assert!(slow.ends_with("Trying local OCR."));
+        let down = request_error_message(false);
+        assert!(down.contains("could not be reached"), "{down}");
+        assert!(
+            REQUEST_TIMEOUT.as_secs() >= 90,
+            "Gemini was seen answering in ~60 s"
+        );
     }
 
     fn wrap_content(content: &str) -> Vec<u8> {

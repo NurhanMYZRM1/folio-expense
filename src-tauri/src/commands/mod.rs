@@ -62,6 +62,7 @@ pub fn handler<R: Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + 
         jobs::heartbeat,
         jobs::fail_job,
         jobs::retry_job,
+        jobs::online_available,
         jobs::try_online,
         jobs::complete_ocr,
         jobs::complete_thumbnail,

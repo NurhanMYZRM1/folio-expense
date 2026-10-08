@@ -223,6 +223,11 @@ export function ClaimDetail() {
   }
   const exports = jobs.filter((j) => j.jobType === 'generate_pdf' && j.entityId === claim.id);
   const exporting = exports.some((j) => ['pending', 'running'].includes(j.status));
+  // A report is a snapshot taken when it was queued; it is outdated once the
+  // claim's contents (not just its status) changed afterwards.
+  const outdated = (j: (typeof exports)[number]) =>
+    j.status === 'completed' && !!detail.contentChangedAt && j.createdAt < detail.contentChangedAt;
+  const anyOutdated = exports.some(outdated);
   async function transition(status: ClaimStatus) {
     await act(
       () => api.transitionClaim(claim.id, status),
@@ -512,6 +517,12 @@ export function ClaimDetail() {
           </Link>
         }
       >
+        {anyOutdated && (
+          <div className="notice-box">
+            This claim changed after some reports were generated. Export a new PDF to include the
+            latest values.
+          </div>
+        )}
         {exports.length ? (
           <AnimatePresence initial={false}>
             {exports.map((j, i) => (
@@ -520,9 +531,11 @@ export function ClaimDetail() {
                 <div>
                   <strong>Claim report · {dateLabel(j.createdAt)}</strong>
                   <small>
-                    {j.status === 'completed'
-                      ? 'Saved locally · snapshot of claim at export time'
-                      : j.lastError || 'Preparing your report and receipt appendix'}
+                    {outdated(j)
+                      ? 'Outdated · the claim changed after this report was generated'
+                      : j.status === 'completed'
+                        ? 'Saved locally · snapshot of claim at export time'
+                        : j.lastError || 'Preparing your report and receipt appendix'}
                   </small>
                 </div>
                 <StatusBadge status={j.status} />

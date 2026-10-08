@@ -605,12 +605,226 @@ fn claim_totals_currency_and_membership_are_enforced() {
     s.transition_claim(&claim.id, ClaimStatus::Submitted)
         .unwrap();
     assert_eq!(s.expense(&id).unwrap().status, ExpenseStatus::Submitted);
-    assert!(s.edit_expense(edit(&s, &id)).is_err());
     s.transition_claim(&claim.id, ClaimStatus::Draft).unwrap();
     s.edit_expense(edit(&s, &id)).unwrap();
     let d = s.set_claim_expense(&claim.id, &id, false).unwrap();
     assert_eq!(d.claim.total_amount_minor, 0);
     assert!(s.request_pdf(&claim.id).is_err());
+}
+#[test]
+fn receipt_values_stay_editable_after_the_claim_is_submitted_or_archived() {
+    let (t, s) = workspace();
+    let id = s.create_expense().unwrap().id;
+    s.edit_expense(edit(&s, &id)).unwrap();
+    let claim = s.create_claim("September".into(), "MYR".into()).unwrap();
+    s.set_claim_expense(&claim.id, &id, true).unwrap();
+    s.transition_claim(&claim.id, ClaimStatus::Submitted)
+        .unwrap();
+    let before = s.claim(&claim.id).unwrap().claim;
+
+    let mut fix = edit(&s, &id);
+    fix.merchant_name = Some("Corrected merchant".into());
+    fix.total_amount_minor = Some(9000);
+    let saved = s.edit_expense(fix).unwrap();
+    assert_eq!(saved.merchant_name.as_deref(), Some("Corrected merchant"));
+    assert_eq!(saved.total_amount_minor, Some(9000));
+    assert_eq!(
+        saved.status,
+        ExpenseStatus::Submitted,
+        "an edit never moves an expense out of its claim's status"
+    );
+    let detail = s.claim(&claim.id).unwrap();
+    let after = detail.claim;
+    // Reports exported before this edit are outdated; a status change alone is not a content change.
+    let changed_at = detail
+        .content_changed_at
+        .expect("the edit is a content change");
+    assert!(changed_at >= before.updated_at);
+    assert_eq!(after.status.as_str(), "submitted");
+    assert_eq!(after.total_amount_minor, 9000);
+    assert!(after.version > before.version);
+    assert!(after.updated_at >= before.updated_at);
+
+    s.transition_claim(&claim.id, ClaimStatus::Archived)
+        .unwrap();
+    assert_eq!(
+        s.claim(&claim.id).unwrap().content_changed_at,
+        Some(changed_at),
+        "archiving does not make exported reports outdated"
+    );
+    let mut again = edit(&s, &id);
+    again.merchant_name = Some("Corrected again".into());
+    again.mark_ready = false;
+    let saved = s.edit_expense(again).unwrap();
+    assert_eq!(saved.merchant_name.as_deref(), Some("Corrected again"));
+    assert_eq!(saved.status, ExpenseStatus::Archived);
+    assert_eq!(
+        s.claim(&claim.id).unwrap().claim.status.as_str(),
+        "archived"
+    );
+
+    // The edits are recorded, along with the claim status they were made under.
+    let db = rusqlite::Connection::open(t.path().join("app/database/expenses.sqlite")).unwrap();
+    let details: Vec<String> = db
+        .prepare("SELECT details FROM audit_events WHERE event_type='expense.edited' AND entity_id=?1 ORDER BY created_at, rowid")
+        .unwrap()
+        .query_map([&id], |r| r.get(0))
+        .unwrap()
+        .map(|d| d.unwrap())
+        .collect();
+    assert!(details[details.len() - 2].contains("\"claimStatus\":\"submitted\""));
+    assert!(details[details.len() - 1].contains("\"claimStatus\":\"archived\""));
+
+    // Everything else about a finished claim stays locked.
+    assert!(s.delete_expenses(vec![id.clone()]).is_err());
+    assert!(s.set_claim_expense(&claim.id, &id, false).is_err());
+}
+#[test]
+fn mark_ready_is_never_blocked_by_blank_fields() {
+    let (_t, s) = workspace();
+    let id = s.create_expense().unwrap().id;
+    // Nothing but a category: no merchant, date, total or currency.
+    let blank = ExpenseEdit {
+        id: id.clone(),
+        version: s.expense(&id).unwrap().version,
+        occurred_at: None,
+        merchant_name: None,
+        premises: None,
+        total_amount_minor: None,
+        tax_amount_minor: None,
+        currency: None,
+        category: "Meals".into(),
+        description: String::new(),
+        mark_ready: true,
+    };
+    let saved = s.edit_expense(blank).unwrap();
+    assert_eq!(saved.status, ExpenseStatus::Ready);
+    assert!(saved.merchant_name.is_none() && saved.occurred_at.is_none());
+    assert!(saved.total_amount_minor.is_none());
+
+    // A ready expense with blanks still goes through a claim, a PDF and a CSV.
+    let mut with_currency = edit(&s, &id);
+    with_currency.merchant_name = None;
+    with_currency.occurred_at = None;
+    with_currency.total_amount_minor = None;
+    with_currency.tax_amount_minor = None;
+    s.edit_expense(with_currency).unwrap();
+    assert_eq!(s.expense(&id).unwrap().status, ExpenseStatus::Ready);
+    let claim = s.create_claim("Blanks".into(), "MYR".into()).unwrap();
+    s.set_claim_expense(&claim.id, &id, true).unwrap();
+    s.request_pdf(&claim.id).unwrap();
+    assert!(s.export_claim_csv(&claim.id).is_ok());
+    s.transition_claim(&claim.id, ClaimStatus::Submitted)
+        .unwrap();
+}
+#[test]
+fn mark_ready_still_refuses_values_that_cannot_be_stored() {
+    let (_t, s) = workspace();
+    let id = s.create_expense().unwrap().id;
+    let mut bad_date = edit(&s, &id);
+    bad_date.occurred_at = Some("2026-13-45".into());
+    assert!(s.edit_expense(bad_date).is_err());
+    let mut tax_over_total = edit(&s, &id);
+    tax_over_total.tax_amount_minor = Some(9_000);
+    tax_over_total.total_amount_minor = Some(8_450);
+    assert!(s.edit_expense(tax_over_total).is_err());
+    let mut bad_currency = edit(&s, &id);
+    bad_currency.currency = Some("ZZZ".into());
+    assert!(s.edit_expense(bad_currency).is_err());
+    let mut bad_category = edit(&s, &id);
+    bad_category.category = "Not a category".into();
+    assert!(s.edit_expense(bad_category).is_err());
+    assert_ne!(
+        s.expense(&id).unwrap().status,
+        ExpenseStatus::Ready,
+        "nothing was saved"
+    );
+}
+#[test]
+fn extraction_jobs_are_claimed_before_previews() {
+    let (t, s) = workspace();
+    import(&t, &s);
+    import_another(&t, &s, 90);
+    let order: Vec<String> = std::iter::from_fn(|| s.take_job().unwrap())
+        .map(|j| j.job.job_type)
+        .collect();
+    assert_eq!(
+        order,
+        [
+            "extract_receipt",
+            "extract_receipt",
+            "generate_thumbnail",
+            "generate_thumbnail"
+        ],
+        "the reading you are waiting for comes before cosmetic previews"
+    );
+}
+fn enable_online(s: &AppService, base_url: &str) {
+    let mut settings = s.settings().unwrap();
+    settings.online_enabled = true;
+    settings.api_base_url = base_url.into();
+    s.save_settings(settings).unwrap();
+    s.set_credential("test-key".into()).unwrap();
+}
+fn png_input() -> Vec<String> {
+    vec!["data:image/png;base64,AAAA".into()]
+}
+#[test]
+fn a_failing_provider_is_skipped_for_the_receipts_that_follow() {
+    let (t, s) = workspace();
+    // Nothing listens here, so the first attempt fails quickly.
+    enable_online(&s, "https://127.0.0.1:9");
+    assert!(s.online_available().unwrap());
+
+    import(&t, &s);
+    let first = extraction_job(&s);
+    assert!(!s
+        .try_online(&first.job.id, &first.token, png_input())
+        .unwrap());
+    assert!(
+        !s.online_available().unwrap(),
+        "one provider failure pauses online extraction"
+    );
+
+    import_another(&t, &s, 91);
+    let second = extraction_job(&s);
+    let started = std::time::Instant::now();
+    assert!(!s
+        .try_online(&second.job.id, &second.token, png_input())
+        .unwrap());
+    assert!(
+        started.elapsed() < std::time::Duration::from_millis(500),
+        "a paused provider is not contacted at all"
+    );
+    let job = s
+        .jobs()
+        .unwrap()
+        .into_iter()
+        .find(|j| j.id == second.job.id)
+        .unwrap();
+    assert!(
+        job.last_error.unwrap_or_default().contains("skipped"),
+        "the job says why the AI was not used"
+    );
+
+    // Saving settings (or a new key) lifts the pause.
+    s.save_settings(s.settings().unwrap()).unwrap();
+    assert!(s.online_available().unwrap());
+    s.try_online(&first.job.id, &first.token, png_input()).ok();
+    assert!(!s.online_available().unwrap());
+    s.set_credential("another-key".into()).unwrap();
+    assert!(s.online_available().unwrap());
+}
+#[test]
+fn online_is_unavailable_without_a_credential_or_when_switched_off() {
+    let (_t, s) = workspace();
+    assert!(!s.online_available().unwrap(), "off by default");
+    let mut settings = s.settings().unwrap();
+    settings.online_enabled = true;
+    s.save_settings(settings).unwrap();
+    assert!(!s.online_available().unwrap(), "no key stored");
+    s.set_credential("k".into()).unwrap();
+    assert!(s.online_available().unwrap());
 }
 #[test]
 fn crash_recovery_invalidates_old_lease_and_preserves_data() {
@@ -683,8 +897,10 @@ fn png_thumbnail_is_reencoded_as_webp_for_webkit() {
     use base64::Engine;
     let (t, s) = workspace();
     let id = import(&t, &s);
-    let j = s.take_job().unwrap().unwrap();
-    assert_eq!(j.job.job_type, "generate_thumbnail");
+    // Extraction is claimed first; the preview job follows.
+    let j = std::iter::from_fn(|| s.take_job().unwrap())
+        .find(|j| j.job.job_type == "generate_thumbnail")
+        .unwrap();
     let bytes = fs::read(receipt(&t)).unwrap();
     s.complete_thumbnail(
         &j.job.id,
