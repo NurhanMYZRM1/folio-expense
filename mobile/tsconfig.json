@@ -9,6 +9,7 @@
       "@tauri-apps/api/webviewWindow": ["./src/dom/shims/tauri-webview-window.ts"],
       "@tauri-apps/plugin-dialog": ["./src/dom/shims/tauri-dialog.ts"],
       "@tauri-apps/plugin-deep-link": ["./src/dom/shims/tauri-deep-link.ts"],
+      "react-native": ["./node_modules/react-native/types_generated/index.d.ts"],
       "*": ["./node_modules/@types/*", "./node_modules/*"]
     }
   },

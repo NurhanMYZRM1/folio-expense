@@ -91,10 +91,10 @@ export default function ExpensesScreen() {
         style={{ flex: 1, backgroundColor: p.bg }}
         contentInsetAdjustmentBehavior="automatic"
         data={visible}
-        keyExtractor={(e) => e.id}
+        keyExtractor={(e: Expense) => e.id}
         // Switching a status or searching: rows that stay glide to their new places.
         itemLayoutAnimation={settle}
-        renderItem={({ item, index }) => (
+        renderItem={({ item, index }: { item: Expense; index: number }) => (
           <Animated.View entering={index < ANIMATED_ROWS ? listEntering(index) : undefined} exiting={quickExit}>
             <ExpenseRow expense={item} />
           </Animated.View>
