@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Folio is a local-first expense and claims workspace: import receipts, review them, and export claim reports. Everything stays on your device."
+    />
+    <title>Folio · Expense workspace</title>
+    <style>
+      :root {
+        --bg: #f5f7f8;
+        --surface: #ffffff;
+        --text: #1b2429;
+        --muted: #5a6a73;
+        --accent: #2d6a56;
+        --accent-ink: #ffffff;
+        --border: #dde4e8;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #12171b;
+          --surface: #1b2227;
+          --text: #e8eef1;
+          --muted: #9aabb4;
+          --accent: #5fb89a;
+          --accent-ink: #0f1a16;
+          --border: #2a343b;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font:
+          16px/1.55 system-ui,
+          -apple-system,
+          'Segoe UI',
+          Roboto,
+          sans-serif;
+      }
+      main {
+        max-width: 56rem;
+        margin: 0 auto;
+        padding: 4rem 1rem 3rem;
+      }
+      .mark {
+        display: inline-grid;
+        place-items: center;
+        width: 3.5rem;
+        height: 3.5rem;
+        border-radius: 0.9rem;
+        background: var(--accent);
+        color: var(--accent-ink);
+        font-size: 1.9rem;
+        font-weight: 800;
+      }
+      h1 {
+        margin: 1rem 0 0.25rem;
+        font-size: clamp(2rem, 6vw, 3rem);
+        line-height: 1.1;
+      }
+      .lede {
+        max-width: 38rem;
+        margin: 0 0 2rem;
+        color: var(--muted);
+        font-size: 1.15rem;
+      }
+      .grid {
+        display: grid;
+        gap: 1rem;
+        grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+      }
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 0.9rem;
+        padding: 1.1rem 1.2rem;
+      }
+      .card h2 {
+        margin: 0 0 0.35rem;
+        font-size: 1.05rem;
+      }
+      .card p {
+        margin: 0;
+        color: var(--muted);
+      }
+      .status {
+        margin-top: 2rem;
+        padding: 1rem 1.2rem;
+        border-left: 4px solid var(--accent);
+        background: var(--surface);
+        border-radius: 0.4rem;
+      }
+      .status p {
+        margin: 0.25rem 0 0;
+        color: var(--muted);
+      }
+      footer {
+        margin-top: 2.5rem;
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <span class="mark" aria-hidden="true">F</span>
+      <h1>Folio</h1>
+      <p class="lede">
+        A local-first expense workspace. Import receipts, review what was read, and export claim
+        reports. Your data stays on your device.
+      </p>
+
+      <section class="grid" aria-label="What Folio does">
+        <div class="card">
+          <h2>Reads receipts</h2>
+          <p>Photos, PDFs and iPhone HEIC images are read on-device. Online AI is optional.</p>
+        </div>
+        <div class="card">
+          <h2>Works offline</h2>
+          <p>No account and no cloud sync required. Receipts and claims live on your device.</p>
+        </div>
+        <div class="card">
+          <h2>Claim reports</h2>
+          <p>
+            Group expenses into a claim and export a PDF with receipt references, plus CSV or Excel.
+          </p>
+        </div>
+        <div class="card">
+          <h2>Desktop and iPhone</h2>
+          <p>A desktop app and an iPhone app share the same receipt-reading and claims core.</p>
+        </div>
+      </section>
+
+      <section class="status" aria-label="Availability">
+        <strong>Preview</strong>
+        <p>
+          Folio runs as a desktop app and as an iPhone app (currently an internal development
+          build). There is no web version of the app itself: it keeps its data on your device, so it
+          can't run in a browser yet.
+        </p>
+      </section>
+
+      <footer>Folio · expense workspace · preview</footer>
+    </main>
+  </body>
+</html>
