@@ -9,7 +9,7 @@
     "scheme": "expenseapp",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "bundleIdentifier": "com.folio.expenses",
+      "bundleIdentifier": "com.nurhanfawwaz.folio",
       "supportsTablet": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
