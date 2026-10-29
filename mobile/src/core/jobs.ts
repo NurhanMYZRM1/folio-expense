@@ -21,6 +21,8 @@ export type JobNotice = (message: string, error?: boolean) => void;
 let font: Uint8Array | null = null;
 async function reportFont(): Promise<Uint8Array> {
   if (font) return font;
+  // Metro resolves bundled font assets through static require calls.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const asset = Asset.fromModule(require("@fontsource/noto-sans/files/noto-sans-latin-400-normal.woff"));
   await asset.downloadAsync();
   font = new File(asset.localUri ?? asset.uri).bytesSync();

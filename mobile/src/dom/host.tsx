@@ -1,7 +1,7 @@
 // Runs one of the desktop app's screens inside a DOM component: the shared
 // Providers and react-router hooks work unchanged; leaving the screen's route
 // hands navigation to the native Expo Router stack.
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { Providers, useWorkspace } from "@folio/app/providers";
 import type { FolioBridge } from "./bridge";
@@ -41,9 +41,11 @@ function RefreshOnChange({ version }: { version: number }) {
 }
 
 /** Remembers the last location this screen owns, to return to after handing a link to native. */
-function Track({ last, children }: { last: { current: string }; children: ReactNode }) {
+function Track({ lastRef, children }: { lastRef: { current: string }; children: ReactNode }) {
   const location = useLocation();
-  last.current = location.pathname + location.search;
+  useEffect(() => {
+    lastRef.current = location.pathname + location.search;
+  }, [lastRef, location.pathname, location.search]);
   return <>{children}</>;
 }
 
@@ -80,9 +82,11 @@ function TitleSync({ live, enabled }: { live: { current: FolioHostProps }; enabl
 
 export function FolioHost({ pattern, children, ...props }: FolioHostProps & { pattern: string; children: ReactNode }) {
   const live = useRef(props);
-  live.current = props;
   const last = useRef(props.path);
-  if (typeof window !== "undefined") installBridge(live);
+  useLayoutEffect(() => {
+    live.current = props;
+    installBridge(live);
+  });
 
   return (
     <MemoryRouter initialEntries={[props.path]}>
@@ -93,7 +97,7 @@ export function FolioHost({ pattern, children, ...props }: FolioHostProps & { pa
           <Route
             path={pattern}
             element={
-              <Track last={last}>
+              <Track lastRef={last}>
                 <main className="mobile-page">{children}</main>
               </Track>
             }
