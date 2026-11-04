@@ -154,7 +154,8 @@ export function ReceiptViewer({ receiptId }: { receiptId: string | null }) {
           </button>
         </div>
       </div>
-      <div className="receipt-canvas">
+      {/* Focusable so keyboard users can scroll a zoomed receipt with the arrow keys. */}
+      <div className="receipt-canvas" tabIndex={0} role="region" aria-label="Receipt preview">
         {busy && (
           <div className="viewer-loading">
             <LoaderCircle className="spin" size={22} />

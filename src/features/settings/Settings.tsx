@@ -1,7 +1,17 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
-import { ShieldCheck, Monitor, KeyRound, FolderOpen, Save, LockKeyhole, Info } from 'lucide-react';
+import {
+  ShieldCheck,
+  Monitor,
+  KeyRound,
+  FolderOpen,
+  Save,
+  LockKeyhole,
+  Info,
+  Trash2,
+} from 'lucide-react';
 import { PageHeader, Panel } from '../../components/ui';
+import { Modal } from '../../components/motion';
 import { useWorkspace } from '../../app/providers';
 import { api, desktop } from '../../lib/ipc';
 import { errorMessage } from '../../lib/errors';
@@ -38,10 +48,11 @@ function Toggle({
   );
 }
 export function Settings() {
-  const { settings, setSettings, notify } = useWorkspace();
+  const { settings, setSettings, notify, refresh } = useWorkspace();
   const [form, setForm] = useState(settings),
     [info, setInfo] = useState<AppInfo | null>(null),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [confirmErase, setConfirmErase] = useState(false);
   const credential = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (desktop)
@@ -87,6 +98,23 @@ export function Settings() {
       notify(errorMessage(e), true);
     } finally {
       setBusy(false);
+    }
+  }
+  async function erase() {
+    setBusy(true);
+    try {
+      await api.eraseAllData();
+      const fresh = await api.settings();
+      setSettings(fresh);
+      setForm(fresh);
+      setInfo(await api.info());
+      await refresh();
+      notify('All Folio data was erased from this device.');
+    } catch (e) {
+      notify(errorMessage(e), true);
+    } finally {
+      setBusy(false);
+      setConfirmErase(false);
     }
   }
   async function chooseDirectory() {
@@ -176,7 +204,8 @@ export function Settings() {
                 <div className="notice-box">
                   <Info size={16} />
                   <span>
-                    Enabling online AI allows receipt images to leave this device. Your provider’s
+                    Enabling online AI sends receipt images, which can show names, addresses and
+                    card digits, to your provider, possibly in another country. Your provider’s
                     processing and retention terms apply. Save these preferences before importing.
                   </span>
                 </div>
@@ -256,9 +285,9 @@ export function Settings() {
                 )}
               </div>
               <p className="field-help">
-                Write-only input. Saved in macOS Keychain or Windows Credential Manager; never
-                returned to the interface or stored in SQLite. Save the provider URL before adding a
-                credential.
+                Write-only input. Saved in your device’s credential vault (Keychain on Apple
+                devices, Credential Manager on Windows); never returned to the interface or stored
+                in SQLite. Save the provider URL before adding a credential.
               </p>
             </div>
           </Panel>
@@ -315,8 +344,8 @@ export function Settings() {
             </span>
             <h2>Local comes first.</h2>
             <p>
-              Your computer is the source of truth. Receipts, expenses, claims, and audit history
-              live here.
+              This device is the source of truth. Receipts, expenses, claims, and audit history live
+              here.
             </p>
             <ul>
               <li>
@@ -341,9 +370,50 @@ export function Settings() {
             <p className="field-help">
               For a backup, close Folio and copy the entire data directory to a secure location.
             </p>
+            <div className="delete-row">
+              <button
+                type="button"
+                className="text-button danger-text"
+                disabled={busy}
+                onClick={() => setConfirmErase(true)}
+              >
+                <Trash2 size={13} />
+                Erase all data
+              </button>
+            </div>
           </section>
         </aside>
       </form>
+      <Modal
+        open={confirmErase}
+        onClose={() => !busy && setConfirmErase(false)}
+        labelledBy="erase-data-title"
+        describedBy="erase-data-body"
+        role="alertdialog"
+      >
+        <div className="modal-icon">
+          <Trash2 size={22} />
+        </div>
+        <h2 id="erase-data-title">Erase all Folio data?</h2>
+        <p id="erase-data-body">
+          This permanently deletes every expense, receipt, claim, generated report and preference on
+          this device, and removes the stored AI credential. Copies you saved or shared outside
+          Folio, and existing device or computer backups, are not affected. This cannot be undone.
+        </p>
+        <div className="modal-actions">
+          <button
+            className="button secondary"
+            data-autofocus
+            disabled={busy}
+            onClick={() => setConfirmErase(false)}
+          >
+            Cancel
+          </button>
+          <button className="button danger" disabled={busy} onClick={() => void erase()}>
+            {busy ? 'Erasing…' : 'Erase all data'}
+          </button>
+        </div>
+      </Modal>
     </>
   );
 }
