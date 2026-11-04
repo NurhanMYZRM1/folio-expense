@@ -91,6 +91,53 @@ impl AppService {
         self.online_backoff().clear();
         Ok(())
     }
+    /// Permanently erases every local record, receipt, generated report and the
+    /// stored AI credential, leaving an empty workspace with default settings.
+    /// Copies the user saved elsewhere (an export folder, a share sheet) are theirs and untouched.
+    pub fn erase_all_data(&self) -> Result<()> {
+        let mut db = self.conn()?;
+        let cutoff = (chrono::Utc::now() - chrono::Duration::minutes(2))
+            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+        let busy: bool = db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM jobs WHERE status='running' AND updated_at >= ?1)",
+            [cutoff],
+            |r| r.get(0),
+        )?;
+        if busy {
+            return Err(AppError::invalid(
+                "Folio is still reading a receipt or building a report. Try again when it finishes.",
+            ));
+        }
+        // The credential goes first: if the vault refuses, nothing has been erased yet.
+        self.secrets.delete()?;
+        let tx = db.transaction()?;
+        tx.execute_batch(
+            "DELETE FROM claim_expenses; DELETE FROM extraction_runs; DELETE FROM jobs;
+             DELETE FROM expenses; DELETE FROM receipt_files; DELETE FROM expense_claims;
+             DELETE FROM audit_events; DELETE FROM exchange_rates; DELETE FROM settings;",
+        )?;
+        tx.commit()?;
+        // Rewrite the file so erased rows do not linger in free pages or the WAL.
+        db.execute_batch("VACUUM; PRAGMA wal_checkpoint(TRUNCATE);")?;
+        drop(db);
+        self.online_backoff().clear();
+        // Receipt folders are now unreferenced, so the startup cleanup removes them.
+        self.recover_storage()?;
+        for folder in ["exports/claims", "exports/csv", "exports/xlsx", "cache"] {
+            for entry in std::fs::read_dir(self.paths.resolve(folder)?)? {
+                let entry = entry?;
+                if entry.file_type()?.is_file() {
+                    std::fs::remove_file(entry.path()).map_err(|_| {
+                        AppError::new(
+                            "StorageError",
+                            "Your records were erased, but a saved report could not be removed. Close any open Folio report and choose Erase all data again.",
+                        )
+                    })?;
+                }
+            }
+        }
+        Ok(())
+    }
     pub fn app_info(&self) -> Result<AppInfo> {
         Ok(AppInfo {
             data_directory: self.paths.root.to_string_lossy().to_string(),

@@ -60,6 +60,7 @@ pub fn dispatch(s: &AppService, command: &str, a: Value) -> Result<Value> {
         "get_settings" => out!(s.settings()),
         "save_settings" => out!(s.save_settings(arg!("settings"))),
         "app_info" => out!(s.app_info()),
+        "erase_all_data" => out!(s.erase_all_data()),
         "list_jobs" => out!(s.jobs()),
         "take_job" => out!(s.take_job()),
         "heartbeat" => out!(s.heartbeat(id(), token())),

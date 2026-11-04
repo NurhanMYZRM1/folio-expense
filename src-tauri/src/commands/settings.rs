@@ -22,3 +22,7 @@ pub(super) async fn set_credential(s: Service<'_>, key: String) -> Result<()> {
 pub(super) async fn delete_credential(s: Service<'_>) -> Result<()> {
     blocking(s, |s| s.delete_credential()).await
 }
+#[tauri::command]
+pub(super) async fn erase_all_data(s: Service<'_>) -> Result<()> {
+    blocking(s, |s| s.erase_all_data()).await
+}

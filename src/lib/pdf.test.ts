@@ -10,7 +10,7 @@ import {
   PDFRef,
   type PDFPage,
 } from 'pdf-lib';
-import { generateClaimPdf, receiptReference } from './pdf';
+import { generateClaimPdf, receiptReference, stripJpegMetadata } from './pdf';
 import type { ExportSnapshot, Expense, ReceiptContent } from '../bindings/generated';
 
 // --- Test-only PDF introspection helpers -----------------------------------
@@ -321,6 +321,23 @@ describe('claim PDF', () => {
     const pdf = await PDFDocument.load(data);
     expect(pdf.getPageCount()).toBe(3); // summary, register, one appendix page
     expect(pageText(pdf, 2)).toContain('RECEIPT APPENDIX');
+  });
+  it('leaves photo EXIF (GPS position, device) out of the receipt appendix', async () => {
+    const s = fixture();
+    s.receipts[0].mimeType = 'image/jpeg';
+    s.includeReceipts = true;
+    const raw = await makeHeicReceipt();
+    const jpeg = Buffer.from(raw.base64, 'base64');
+    const secret = Buffer.from('Exif\0\0GPS-SECRET 3.1390N 101.6869E iPhone');
+    const app1 = Buffer.concat([Buffer.from([0xff, 0xe1, 0, secret.length + 2]), secret]);
+    raw.base64 = Buffer.concat([jpeg.subarray(0, 2), app1, jpeg.subarray(2)]).toString('base64');
+    const data = await generateClaimPdf(s, [raw], await loadFont());
+    expect(Buffer.from(data).includes('GPS-SECRET')).toBe(false);
+    expect((await PDFDocument.load(data)).getPageCount()).toBe(3);
+    // The helper removes exactly that segment and nothing else.
+    const withExif = Buffer.from(raw.base64, 'base64');
+    expect(Buffer.from(stripJpegMetadata(withExif)).equals(jpeg)).toBe(true);
+    expect(stripJpegMetadata(Buffer.from('not a jpeg'))).toEqual(Buffer.from('not a jpeg'));
   });
   it('names the receipt instead of crashing on an image format it cannot embed', async () => {
     const s = fixture();

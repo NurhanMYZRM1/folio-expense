@@ -57,6 +57,7 @@ pub fn handler<R: Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + 
         settings::app_info,
         settings::set_credential,
         settings::delete_credential,
+        settings::erase_all_data,
         jobs::list_jobs,
         jobs::take_job,
         jobs::heartbeat,

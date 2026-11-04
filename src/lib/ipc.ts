@@ -52,6 +52,7 @@ export const api = {
   info: () => call<AppInfo>('app_info'),
   setCredential: (key: string) => call<void>('set_credential', { key }),
   deleteCredential: () => call<void>('delete_credential'),
+  eraseAllData: () => call<void>('erase_all_data'),
   jobs: () => call<Job[]>('list_jobs'),
   takeJob: () => call<JobLease | null>('take_job'),
   heartbeat: (id: string, token: string) => call<void>('heartbeat', { id, token }),

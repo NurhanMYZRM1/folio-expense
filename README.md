@@ -57,9 +57,13 @@ If an export directory is configured in Settings, exporting a CSV also copies a 
 
 For a backup, close Folio and copy the entire `expense-app` directory, including any SQLite WAL files. Restore with the app closed. API keys stay in the OS vault and are not part of this backup. Cloud sync is not implemented or required.
 
+**Settings → Erase all data** deletes every record, receipt, generated report, downloaded rate and preference, removes the stored API key, and rewrites the database (`VACUUM`, WAL truncated) so erased rows do not linger in free pages. SQLite runs with `secure_delete` on, so single deletions are overwritten too. Erasing does not reach copies outside the data directory (an export folder, shared files, OS backups) or images already sent to an AI provider. Draft privacy policy and terms: [docs/legal](docs/legal/); launch audit: [docs/LAUNCH_AUDIT.md](docs/LAUNCH_AUDIT.md).
+
 Currency conversion is on by default and can be turned off in Settings. It downloads published rates from Frankfurter (https://frankfurter.dev, European Central Bank reference rates, free and without an account); each request contains only two currency codes and a date, never receipt content. Downloaded rates are kept in the local database, so each is fetched once. ECB does not publish BHD, KWD or OMR rates; such receipts keep their own currency.
 
 Online AI extraction defaults to disabled. If explicitly enabled, Rust sends rendered receipt images to the configured HTTPS OpenAI-compatible Chat Completions endpoint. Credentials are write-only from the UI and stored using macOS Keychain / Windows Credential Manager. They are never read back into React or persisted in SQLite, localStorage, or `.env`. Changing the endpoint clears the old credential. Redirects are disabled. Invalid responses, missing credentials, and network/provider failures fall back to local OCR.
+
+The iOS app also checks Expo's EAS Update service at launch (`updates.url` in `mobile/app.json`); that request carries a random per-install EAS client ID, the platform, runtime version and channel. The desktop app has no updater or telemetry.
 
 ## Build and test
 

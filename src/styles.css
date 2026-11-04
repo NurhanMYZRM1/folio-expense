@@ -27,6 +27,8 @@
   --input: #fff;
   --hover: #eef3f1;
   --border: #e3e8eb;
+  /* Form fields and switches: ≥ 3:1 against --input and --surface (WCAG 1.4.11) */
+  --control-border: #87929a;
   --hairline: color-mix(in srgb, var(--border) 70%, transparent);
   --card-border: rgb(20 33 41 / 0.06);
   /* Text (all ≥ 4.5:1 on --bg, --surface and --subtle) */
@@ -85,6 +87,7 @@
   --input: #1b242b;
   --hover: #212d33;
   --border: #2a353d;
+  --control-border: #64727c;
   --card-border: rgb(255 255 255 / 0.06);
   --text: #e4eaed;
   --muted: #9eabb4;
@@ -124,7 +127,7 @@ select,
 textarea {
   color: var(--text);
   background: var(--input);
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: var(--r-sm);
   outline: none;
   font-size: 14px;
@@ -182,7 +185,7 @@ select,
 textarea {
   color: var(--text);
   background: var(--input);
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: var(--r-sm);
   outline: none;
   font-size: 14px;
@@ -1243,7 +1246,7 @@ h1 {
   display: flex;
   align-items: center;
   gap: 8px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: var(--r-sm);
   background: var(--input);
   color: var(--muted);
@@ -1410,6 +1413,10 @@ h1 {
   align-items: flex-start;
   justify-content: flex-start;
 }
+.receipt-canvas:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
 .receipt-image-space {
   flex: none;
   transition: width var(--dur) var(--ease-out);
@@ -1496,7 +1503,7 @@ h1 {
 }
 .money-input {
   display: flex;
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: var(--r-sm);
   background: var(--input);
   align-items: center;
@@ -1953,7 +1960,7 @@ h1 {
   width: 51px;
   height: 31px;
   border-radius: var(--r-pill);
-  background: var(--border);
+  background: var(--control-border);
   position: relative;
   flex: none;
   pointer-events: none;
