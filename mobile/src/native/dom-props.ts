@@ -7,7 +7,7 @@ import { useCallback, useMemo } from "react";
 import { ActionSheetIOS, Alert, Platform } from "react-native";
 import FolioCore from "../../modules/folio-core";
 import { dataRoot, invokeRaw, useDataVersion } from "~/core/folio";
-import { pickReceipts, type ReceiptSource } from "~/core/pickers";
+import { clearTemporaryCopies, pickReceipts, type ReceiptSource } from "~/core/pickers";
 import type { FolioHostProps, NavigateMode } from "~/dom/host";
 
 const TAB_ROOTS = new Set(["/", "/expenses", "/import", "/claims", "/settings"]);
@@ -53,6 +53,18 @@ function remember(command: string, args: string, response: string) {
 async function invoke(command: string, args: string): Promise<string> {
   const response = await invokeRaw(command, args);
   if (response.startsWith('{"error"')) return response;
+  if (command === "erase_all_data") {
+    try {
+      clearTemporaryCopies();
+    } catch {
+      return JSON.stringify({
+        error: {
+          code: "StorageError",
+          message: "Your records were erased, but temporary copies of receipts could not be removed. Choose Erase all data again.",
+        },
+      });
+    }
+  }
   if (command === "open_export" || command === "open_csv_export" || command === "open_xlsx_export") {
     const path = (JSON.parse(response) as { result?: string }).result;
     const id = (JSON.parse(args) as { id?: string }).id ?? "";

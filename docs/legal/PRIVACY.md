@@ -65,6 +65,18 @@ Reports and CSV or Excel files you export, copy to another folder, or share (for
 
 Erasing does not reach copies outside Folio's data folder: reports you saved to another folder or shared, device or computer backups made before you erased (for example iCloud, iTunes/Finder, Time Machine or Windows backups) until those backups are replaced, and images already sent to your AI provider (ask that provider to delete them).
 
+### Third parties and how they protect data
+
+Expo is the only service that receives data from Folio on our behalf. [[Before publishing, confirm that Expo's terms (for example a data processing agreement) protect this data at least as well as this policy. App Store Review Guideline 5.1.1(i) requires this policy to confirm it.]] Frankfurter receives no personal data beyond the IP address that every internet connection reveals. Your AI provider is a service you choose and contract with yourself; Folio contacts it only on your instruction and with your key, so its own terms, not ours, decide how it protects your images.
+
+## Camera, photos and files (iPhone)
+
+Folio asks for camera access only when you choose **Take Photo**. **Choose from Library** uses Apple's photo picker, which gives Folio only the photos you select, so Folio does not ask for access to your photo library. **Choose Files** gives Folio only the files you pick. On iPhone, receipts are read with Apple's on-device text recognition; nothing is sent online unless you turn on online AI reading.
+
+## Withdrawing consent
+
+You can stop each flow at any time: switch off **Allow online AI receipt extraction** (and remove the API key), switch off **Convert foreign receipts to my default currency**, and turn off camera access in iOS Settings → Folio. Switching a feature off stops future sending; it does not recall data already sent.
+
 ## Your choices and rights
 
 Because your Folio data stays on your device, you can see, correct, export and delete it yourself in the app at any time. For data held by Frankfurter, your AI provider or Expo, contact them directly. For any question or complaint about this policy, contact us at [[contact email]]. [[Lawyer to confirm whether, and which, rights under the Personal Data Protection Act 2010 apply, and how requests are handled.]]

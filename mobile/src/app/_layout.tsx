@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { ScrollView, Text, useColorScheme } from "react-native";
 import { dataRoot, errorText, openCore } from "~/core/folio";
 import { startJobRunner } from "~/core/jobs";
+import { clearTemporaryCopies } from "~/core/pickers";
 import { notify, setProcessing, StatusOverlay } from "~/native/status";
 import { navTheme, palette } from "~/native/theme";
 
@@ -16,6 +17,12 @@ export default function RootLayout() {
 
   useEffect(() => {
     let stop: (() => void) | undefined;
+    // Nothing is importing or sharing yet, so leftover copies from the last session can go.
+    try {
+      clearTemporaryCopies();
+    } catch {
+      // Best effort: iOS also purges Caches when storage runs low.
+    }
     openCore()
       .then(() => {
         setState("ready");

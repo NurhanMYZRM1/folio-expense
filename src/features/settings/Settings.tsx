@@ -54,6 +54,13 @@ export function Settings() {
     [busy, setBusy] = useState(false),
     [confirmErase, setConfirmErase] = useState(false);
   const credential = useRef<HTMLInputElement>(null);
+  // The recipient is named before anything is sent (App Review 5.1.2(i)).
+  let providerHost = 'your provider';
+  try {
+    providerHost = new URL(form.apiBaseUrl).host || providerHost;
+  } catch {
+    // An unfinished URL keeps the generic wording.
+  }
   useEffect(() => {
     if (desktop)
       void api
@@ -184,7 +191,7 @@ export function Settings() {
             <div className="settings-fields">
               <Toggle
                 label="Offline OCR"
-                detail="Read receipts on this device with bundled Tesseract OCR. English model included."
+                detail="Read receipts on this device. Nothing is sent online."
                 checked={form.offlineOcrEnabled}
                 onChange={(v) => update('offlineOcrEnabled', v)}
               />
@@ -205,8 +212,9 @@ export function Settings() {
                   <Info size={16} />
                   <span>
                     Enabling online AI sends receipt images, which can show names, addresses and
-                    card digits, to your provider, possibly in another country. Your provider’s
-                    processing and retention terms apply. Save these preferences before importing.
+                    card digits, to <strong>{providerHost}</strong>, possibly in another country.
+                    That provider’s processing and retention terms apply. Save these preferences
+                    before importing.
                   </span>
                 </div>
               )}
@@ -295,7 +303,7 @@ export function Settings() {
             <div className="settings-fields">
               <Toggle
                 label="Include receipt images in PDF"
-                detail="Add a receipt appendix so reports remain useful on another computer."
+                detail="Add a receipt appendix so reports remain useful on another device."
                 checked={form.includeReceipts}
                 onChange={(v) => update('includeReceipts', v)}
               />

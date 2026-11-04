@@ -44,7 +44,8 @@
         "expo-image-picker",
         {
           "photosPermission": "Folio imports receipt photos you choose into your local expense workspace.",
-          "cameraPermission": "Folio photographs receipts for your expense claims."
+          "cameraPermission": "Folio photographs receipts for your expense claims.",
+          "microphonePermission": false
         }
       ],
       [
@@ -65,6 +66,8 @@
       "policy": "fingerprint"
     },
     "extra": {
+      "privacyPolicyUrl": null,
+      "supportUrl": null,
       "eas": {
         "projectId": "5010a68a-a7af-4b99-93c9-900a0e0292ee"
       }
