@@ -1,4 +1,4 @@
-use folio::domain::{claim::*, expense::*, extraction::*, receipt::*, settings::*};
+use folio::domain::{claim::*, expense::*, extraction::*, finance::*, receipt::*, settings::*};
 use folio::services::csv_export::CsvExport;
 use ts_rs::TS;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -23,7 +23,47 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ExportSnapshot,
         Settings,
         AppInfo,
-        CsvExport
+        CsvExport,
+        WorkspaceKind,
+        Workspace,
+        WorkspaceInput,
+        CategoryKind,
+        Category,
+        CategoryInput,
+        AccountKind,
+        LoanDirection,
+        Account,
+        AccountInput,
+        TransactionKind,
+        PaymentMethod,
+        TransactionSource,
+        Transaction,
+        TransactionInput,
+        RecordExpenseInput,
+        TransactionFilter,
+        TransactionPage,
+        Budget,
+        BudgetInput,
+        BudgetStatus,
+        BudgetProgress,
+        BillKind,
+        Frequency,
+        Bill,
+        BillInput,
+        OccurrenceStatus,
+        BillOccurrence,
+        BillDetail,
+        BillPaymentInput,
+        CategoryTotal,
+        DailyTotal,
+        MonthlyReport,
+        CurrencyAmount,
+        Overview,
+        ReminderKind,
+        Reminder,
+        SuggestionStatus,
+        TransactionSuggestion,
+        QuickAddDraft
     );
     let path =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/bindings/generated/index.ts");

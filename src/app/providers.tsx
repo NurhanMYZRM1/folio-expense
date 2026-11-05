@@ -27,6 +27,9 @@ export const defaultSettings: Settings = {
   company: '',
   employee: '',
   currencyConversionEnabled: true,
+  notifyBills: true,
+  notifyBudgets: true,
+  paymentAlertsEnabled: false,
 };
 type Notice = { id: number; text: string; error: boolean };
 type Store = {

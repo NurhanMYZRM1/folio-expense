@@ -1,6 +1,30 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import type {
+  Account,
+  AccountInput,
   AppInfo,
+  Bill,
+  BillDetail,
+  BillInput,
+  BillOccurrence,
+  BillPaymentInput,
+  BudgetInput,
+  Budget,
+  BudgetProgress,
+  Category,
+  CategoryInput,
+  MonthlyReport,
+  Overview,
+  QuickAddDraft,
+  RecordExpenseInput,
+  Reminder,
+  Transaction,
+  TransactionFilter,
+  TransactionInput,
+  TransactionPage,
+  TransactionSuggestion,
+  Workspace,
+  WorkspaceInput,
   Claim,
   ClaimDetail,
   ClaimStatus,
@@ -76,4 +100,52 @@ export const api = {
   exportClaimXlsx: (id: string) => call<CsvExport>('export_claim_xlsx', { id }),
   exportExpensesXlsx: (ids: string[]) => call<CsvExport>('export_expenses_xlsx', { ids }),
   openXlsxExport: (id: string) => call<void>('open_xlsx_export', { id }),
+  // Finance ledger (docs/DECISIONS.md). `today` is the device's local date
+  // (YYYY-MM-DD); periods are YYYY-MM.
+  workspaces: () => call<Workspace[]>('list_workspaces'),
+  saveWorkspace: (input: WorkspaceInput) => call<Workspace>('save_workspace', { input }),
+  categories: (workspaceId: string) => call<Category[]>('list_categories', { workspaceId }),
+  saveCategory: (input: CategoryInput) => call<Category>('save_category', { input }),
+  deleteCategory: (id: string) => call<void>('delete_category', { id }),
+  accounts: (workspaceId: string) => call<Account[]>('list_accounts', { workspaceId }),
+  saveAccount: (input: AccountInput) => call<Account>('save_account', { input }),
+  deleteAccount: (id: string) => call<void>('delete_account', { id }),
+  transactions: (filter: TransactionFilter) =>
+    call<TransactionPage>('list_transactions', { filter }),
+  transaction: (id: string) => call<Transaction>('get_transaction', { id }),
+  saveTransaction: (input: TransactionInput) => call<Transaction>('save_transaction', { input }),
+  deleteTransactions: (ids: string[]) => call<number>('delete_transactions', { ids }),
+  recordExpense: (input: RecordExpenseInput) => call<Transaction>('record_expense', { input }),
+  budgets: (workspaceId: string, period: string) =>
+    call<BudgetProgress[]>('list_budgets', { workspaceId, period }),
+  saveBudget: (input: BudgetInput) => call<Budget>('save_budget', { input }),
+  deleteBudget: (id: string) => call<void>('delete_budget', { id }),
+  bills: (workspaceId: string) => call<Bill[]>('list_bills', { workspaceId }),
+  bill: (id: string, today: string) => call<BillDetail>('get_bill', { id, today }),
+  saveBill: (input: BillInput) => call<Bill>('save_bill', { input }),
+  deleteBill: (id: string) => call<void>('delete_bill', { id }),
+  billOccurrences: (workspaceId: string, today: string, horizonDays: number) =>
+    call<BillOccurrence[]>('list_bill_occurrences', { workspaceId, today, horizonDays }),
+  payBill: (input: BillPaymentInput) => call<Transaction>('pay_bill', { input }),
+  monthlyReport: (workspaceId: string, period: string) =>
+    call<MonthlyReport>('report_monthly', { workspaceId, period }),
+  overview: (workspaceId: string, today: string) =>
+    call<Overview>('report_overview', { workspaceId, today }),
+  exportTransactionsCsv: (filter: TransactionFilter) =>
+    call<CsvExport>('export_transactions_csv', { filter }),
+  reminders: (today: string, horizonDays: number) =>
+    call<Reminder[]>('list_reminders', { today, horizonDays }),
+  ackReminder: (id: string) => call<void>('ack_reminder', { id }),
+  parseQuickAdd: (workspaceId: string, text: string, today: string) =>
+    call<QuickAddDraft>('parse_quick_add', { workspaceId, text, today }),
+  suggestions: (workspaceId: string) =>
+    call<TransactionSuggestion[]>('list_suggestions', { workspaceId }),
+  acceptSuggestion: (id: string, input: TransactionInput) =>
+    call<Transaction>('accept_suggestion', { id, input }),
+  dismissSuggestion: (id: string) => call<void>('dismiss_suggestion', { id }),
 };
+/** The device's local calendar date, YYYY-MM-DD (D4: never the UTC date). */
+export function localToday(now = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}

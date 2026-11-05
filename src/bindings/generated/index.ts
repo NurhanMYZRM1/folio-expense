@@ -53,6 +53,241 @@ export type Settings = { theme: string, defaultCurrency: string, onlineEnabled: 
  * Convert foreign-currency receipts to `default_currency` using published
  * exchange rates (only currency codes and a date are sent online).
  */
-currencyConversionEnabled: boolean, };
+currencyConversionEnabled: boolean, 
+/**
+ * Bill and subscription reminders; each bill has its own switch too.
+ */
+notifyBills: boolean, 
+/**
+ * Budget alerts at each budget's threshold and at 100%.
+ */
+notifyBudgets: boolean, 
+/**
+ * Android only: read bank and e-wallet notifications on this device to
+ * suggest transactions for review. Off until the user turns it on.
+ */
+paymentAlertsEnabled: boolean, };
 export type AppInfo = { dataDirectory: string, version: string, credentialConfigured: boolean, };
 export type CsvExport = { id: string, fileName: string, path: string, rows: number, };
+export type WorkspaceKind = "personal" | "business";
+export type Workspace = { id: string, kind: WorkspaceKind, name: string, baseCurrency: string, createdAt: string, updatedAt: string, version: number, syncState: string, };
+export type WorkspaceInput = { 
+/**
+ * None creates a business workspace (the personal one always exists).
+ */
+id: string | null, version: number | null, name: string, 
+/**
+ * Changing it re-converts every transaction's base amount.
+ */
+baseCurrency: string, };
+export type CategoryKind = "income" | "expense";
+export type Category = { id: string, workspaceId: string, kind: CategoryKind, name: string, archivedAt: string | null, version: number, syncState: string, };
+export type CategoryInput = { id: string | null, version: number | null, workspaceId: string, kind: CategoryKind, name: string, archived: boolean, };
+export type AccountKind = "cash" | "bank" | "ewallet" | "card" | "savings" | "loan" | "other";
+export type LoanDirection = "borrowed" | "lent";
+export type Account = { id: string, workspaceId: string, name: string, kind: AccountKind, currency: string, openingBalanceMinor: number, 
+/**
+ * Opening balance plus every posted transaction (computed, never stored).
+ */
+balanceMinor: number, goalTargetMinor: number | null, goalTargetDate: string | null, loanDirection: LoanDirection | null, loanPrincipalMinor: number | null, 
+/**
+ * Informational annual percentage rate as typed, e.g. "4.35".
+ */
+loanAnnualRate: string | null, counterparty: string | null, note: string, archivedAt: string | null, createdAt: string, updatedAt: string, version: number, syncState: string, };
+export type AccountInput = { id: string | null, version: number | null, workspaceId: string, name: string, kind: AccountKind, 
+/**
+ * Fixed once the account has transactions or bills.
+ */
+currency: string, openingBalanceMinor: number, goalTargetMinor: number | null, goalTargetDate: string | null, loanDirection: LoanDirection | null, loanPrincipalMinor: number | null, loanAnnualRate: string | null, counterparty: string | null, note: string, 
+/**
+ * Only a zero-balance account can be archived.
+ */
+archived: boolean, };
+export type TransactionKind = "income" | "expense" | "transfer";
+export type PaymentMethod = "cash" | "debit_card" | "credit_card" | "ewallet" | "bank_transfer" | "duitnow" | "fpx" | "cheque" | "other";
+export type TransactionSource = "manual" | "receipt" | "quick_add" | "voice" | "bill" | "invoice" | "notification";
+export type Transaction = { id: string, workspaceId: string, kind: TransactionKind, accountId: string, accountName: string, 
+/**
+ * The account's currency.
+ */
+currency: string, amountMinor: number, toAccountId: string | null, toAccountName: string | null, toCurrency: string | null, toAmountMinor: number | null, 
+/**
+ * In the workspace base currency; null while awaiting an exchange rate.
+ */
+baseAmountMinor: number | null, exchangeRate: string | null, exchangeRateDate: string | null, occurredOn: string, categoryId: string | null, categoryName: string | null, payee: string | null, note: string, paymentMethod: PaymentMethod | null, source: TransactionSource, 
+/**
+ * The reviewed receipt this records; it owns amount, date and payee.
+ */
+expenseId: string | null, receiptId: string | null, billId: string | null, billDueOn: string | null, createdAt: string, updatedAt: string, version: number, syncState: string, };
+export type TransactionInput = { id: string | null, version: number | null, workspaceId: string, kind: TransactionKind, accountId: string, amountMinor: number, toAccountId: string | null, 
+/**
+ * Required for transfers; must equal `amount_minor` between accounts of
+ * the same currency.
+ */
+toAmountMinor: number | null, occurredOn: string, categoryId: string | null, payee: string | null, note: string, paymentMethod: PaymentMethod | null, 
+/**
+ * How the values were captured (creation only; ignored on update).
+ */
+source: TransactionSource, };
+export type RecordExpenseInput = { expenseId: string, accountId: string, categoryId: string | null, paymentMethod: PaymentMethod | null, note: string, };
+export type TransactionFilter = { workspaceId: string, 
+/**
+ * Inclusive date bounds.
+ */
+from: string | null, to: string | null, 
+/**
+ * Matches either side of a transfer.
+ */
+accountId: string | null, categoryId: string | null, kind: TransactionKind | null, 
+/**
+ * Case-insensitive match on payee and note.
+ */
+search: string | null, minAmountMinor: number | null, maxAmountMinor: number | null, 
+/**
+ * 1..=500.
+ */
+limit: number, offset: number, };
+export type TransactionPage = { items: Array<Transaction>, 
+/**
+ * Matching rows before limit/offset.
+ */
+total: number, };
+export type Budget = { id: string, workspaceId: string, 
+/**
+ * None: all spending.
+ */
+categoryId: string | null, categoryName: string | null, 
+/**
+ * Per calendar month, in the workspace base currency.
+ */
+amountMinor: number, alertPercent: number, archivedAt: string | null, version: number, syncState: string, };
+export type BudgetInput = { id: string | null, version: number | null, workspaceId: string, categoryId: string | null, amountMinor: number, 
+/**
+ * 1..=100; an alert also fires at 100%.
+ */
+alertPercent: number, archived: boolean, };
+export type BudgetStatus = "on_track" | "near_limit" | "over";
+export type BudgetProgress = { budget: Budget, period: string, baseCurrency: string, spentMinor: number, 
+/**
+ * Negative when over budget.
+ */
+remainingMinor: number, 
+/**
+ * floor(spent × 100 / amount); may exceed 100.
+ */
+percent: number, status: BudgetStatus, 
+/**
+ * Expenses in the period still awaiting an exchange rate (not counted).
+ */
+unconvertedCount: number, };
+export type BillKind = "bill" | "subscription";
+export type Frequency = "once" | "weekly" | "monthly" | "yearly";
+export type Bill = { id: string, workspaceId: string, name: string, kind: BillKind, amountMinor: number, 
+/**
+ * The paying account's currency.
+ */
+currency: string, accountId: string, categoryId: string | null, payee: string | null, note: string, frequency: Frequency, intervalCount: number, anchorOn: string, endsOn: string | null, remindDaysBefore: number, remindersEnabled: boolean, cancelledOn: string | null, 
+/**
+ * Earliest unpaid occurrence (may be overdue); None when none remain.
+ */
+nextDueOn: string | null, version: number, syncState: string, };
+export type BillInput = { id: string | null, version: number | null, workspaceId: string, name: string, kind: BillKind, amountMinor: number, accountId: string, categoryId: string | null, payee: string | null, note: string, frequency: Frequency, intervalCount: number, 
+/**
+ * The next due date; saving re-anchors the schedule here (D4).
+ */
+anchorOn: string, endsOn: string | null, remindDaysBefore: number, remindersEnabled: boolean, cancelledOn: string | null, };
+export type OccurrenceStatus = "paid" | "overdue" | "due_today" | "upcoming";
+export type BillOccurrence = { billId: string, billName: string, kind: BillKind, dueOn: string, amountMinor: number, currency: string, status: OccurrenceStatus, 
+/**
+ * The payment, when paid.
+ */
+transactionId: string | null, paidAmountMinor: number | null, 
+/**
+ * When the reminder fires (09:00 local); None when reminders are off.
+ */
+remindOn: string | null, };
+export type BillDetail = { bill: Bill, 
+/**
+ * Up to 12 past and 3 future occurrences, oldest first.
+ */
+occurrences: Array<BillOccurrence>, };
+export type BillPaymentInput = { billId: string, 
+/**
+ * Must be an occurrence of the bill's schedule.
+ */
+dueOn: string, 
+/**
+ * Defaults to the bill's amount.
+ */
+amountMinor: number | null, paidOn: string, 
+/**
+ * Defaults to the bill's account.
+ */
+accountId: string | null, paymentMethod: PaymentMethod | null, note: string, };
+export type CategoryTotal = { 
+/**
+ * None: uncategorised.
+ */
+categoryId: string | null, name: string, kind: CategoryKind, totalMinor: number, count: number, };
+export type DailyTotal = { date: string, incomeMinor: number, expenseMinor: number, };
+export type MonthlyReport = { workspaceId: string, period: string, baseCurrency: string, incomeMinor: number, expenseMinor: number, netMinor: number, 
+/**
+ * Same totals for the month before, for comparison.
+ */
+previousIncomeMinor: number, previousExpenseMinor: number, 
+/**
+ * Expense categories first, each kind sorted by total descending.
+ */
+byCategory: Array<CategoryTotal>, 
+/**
+ * Every day of the month, including days without transactions.
+ */
+daily: Array<DailyTotal>, 
+/**
+ * Income/expense rows awaiting an exchange rate (excluded above).
+ */
+unconvertedCount: number, };
+export type CurrencyAmount = { currency: string, amountMinor: number, };
+export type Overview = { workspace: Workspace, today: string, 
+/**
+ * Sum of non-loan, unarchived accounts in the base currency.
+ */
+totalBalanceMinor: number, 
+/**
+ * Non-loan account balances in other currencies, unconverted.
+ */
+otherBalances: Array<CurrencyAmount>, 
+/**
+ * This calendar month, in the base currency.
+ */
+monthIncomeMinor: number, monthExpenseMinor: number, accounts: Array<Account>, budgets: Array<BudgetProgress>, 
+/**
+ * Overdue occurrences plus those due in the next 14 days.
+ */
+bills: Array<BillOccurrence>, 
+/**
+ * The 8 most recent transactions.
+ */
+recent: Array<Transaction>, pendingSuggestions: number, };
+export type ReminderKind = "bill" | "budget";
+export type Reminder = { 
+/**
+ * `bill:<bill id>:<due date>` or `budget:<budget id>:<period>:<threshold>`.
+ */
+id: string, kind: ReminderKind, workspaceId: string, title: string, body: string, 
+/**
+ * Local date to notify on, at 09:00 local time. Budget alerts are due now.
+ */
+fireOn: string, };
+export type SuggestionStatus = "pending" | "accepted" | "dismissed";
+export type TransactionSuggestion = { id: string, workspaceId: string, kind: TransactionKind, amountMinor: number, currency: string, occurredOn: string, payee: string | null, 
+/**
+ * The bank or e-wallet, e.g. "Maybank".
+ */
+appLabel: string, status: SuggestionStatus, transactionId: string | null, createdAt: string, };
+export type QuickAddDraft = { text: string, kind: TransactionKind, amountMinor: number | null, currency: string | null, occurredOn: string, categoryId: string | null, accountId: string | null, payee: string | null, note: string, 
+/**
+ * Fields the parser was unsure of (`amount`, `date`, `category`,
+ * `account`, `kind`, `payee`); the review form highlights them.
+ */
+uncertain: Array<string>, };
