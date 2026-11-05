@@ -352,3 +352,62 @@ fn paid_bill_history_survives_schedule_reanchoring() {
         "Earlier unpaid occurrences of the old schedule must be removed."
     );
 }
+#[test]
+fn only_unused_customers_and_items_can_be_deleted() {
+    let (_dir, s, w) = setup();
+    let new_item = |sku: &str| {
+        s.save_inventory_item(InventoryItemInput {
+            id: None,
+            version: None,
+            workspace_id: w.clone(),
+            sku: sku.into(),
+            name: sku.into(),
+            unit: "unit".into(),
+            currency: "MYR".into(),
+            unit_price_minor: 500,
+            archived: false,
+        })
+        .unwrap()
+    };
+    let (invoiced, spare) = (customer(&s, &w), customer(&s, &w));
+    let (on_invoice, stocked, unused) = (new_item("A"), new_item("B"), new_item("C"));
+    invoice(&s, &w, &invoiced.id, Some(on_invoice.id.clone()));
+    s.adjust_stock(StockAdjustmentInput {
+        request_id: uuid::Uuid::new_v4().to_string(),
+        workspace_id: w.clone(),
+        item_id: stocked.id.clone(),
+        quantity_milli: 2000,
+        occurred_on: "2026-11-05".into(),
+        reason: "Opening stock".into(),
+    })
+    .unwrap();
+
+    let refused = s.delete_customer(&invoiced.id).unwrap_err();
+    assert!(refused.message.contains("Archive"), "{}", refused.message);
+    s.delete_customer(&spare.id).unwrap();
+    assert!(
+        s.delete_customer(&spare.id).is_err(),
+        "deleting twice reports not found"
+    );
+    for used in [&on_invoice, &stocked] {
+        let refused = s.delete_inventory_item(&used.id).unwrap_err();
+        assert!(refused.message.contains("Archive"), "{}", refused.message);
+    }
+    s.delete_inventory_item(&unused.id).unwrap();
+
+    let customers: Vec<_> = s
+        .list_customers(&w, true)
+        .unwrap()
+        .into_iter()
+        .map(|c| c.id)
+        .collect();
+    assert_eq!(customers, vec![invoiced.id]);
+    let mut items: Vec<_> = s
+        .list_inventory_items(&w, true)
+        .unwrap()
+        .into_iter()
+        .map(|i| i.sku)
+        .collect();
+    items.sort();
+    assert_eq!(items, vec!["A", "B"]);
+}

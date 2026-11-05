@@ -112,6 +112,8 @@ pub fn dispatch(s: &AppService, command: &str, a: Value) -> Result<Value> {
         "export_claim_xlsx" => out!(s.export_claim_xlsx(id())),
         "export_expenses_xlsx" => out!(s.export_expenses_xlsx(arg!("ids"))),
         "open_xlsx_export" => out!(s.xlsx_export_path(id())),
+        "export_all_data" => out!(s.export_all_data()),
+        "open_data_export" => out!(s.data_export_path(id())),
         "list_workspaces" => out!(s.workspaces()),
         "save_workspace" => out!(s.save_workspace(arg!("input"))),
         "list_categories" => out!(s.categories(text_arg!("workspaceId"))),

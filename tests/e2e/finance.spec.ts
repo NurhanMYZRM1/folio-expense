@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { RustBridge, installBridge } from '../bridge';
@@ -37,20 +37,28 @@ test('personal finance persists income, transfers, budgets and a recurring bill 
       savings = accounts.find((a) => a.name === 'Holiday savings')!;
     await page.goto('/#/finance/transactions');
     await page.getByRole('button', { name: 'New transaction', exact: true }).click();
-    await page.getByRole('combobox', { name: 'Transaction kind', exact: true }).selectOption('income');
-    await page.getByRole('combobox', { name: 'Transaction account', exact: true }).selectOption(bank.id);
+    await page
+      .getByRole('combobox', { name: 'Transaction kind', exact: true })
+      .selectOption('income');
+    await page
+      .getByRole('combobox', { name: 'Transaction account', exact: true })
+      .selectOption(bank.id);
     await page.getByLabel('Amount (MYR)', { exact: true }).fill('200');
     await page.getByLabel('Payee / payer', { exact: true }).fill('Salary');
     await page.getByRole('button', { name: 'Confirm transaction', exact: true }).click();
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await page.getByRole('button', { name: 'New transaction', exact: true }).click();
-    await page.getByRole('combobox', { name: 'Transaction account', exact: true }).selectOption(bank.id);
+    await page
+      .getByRole('combobox', { name: 'Transaction account', exact: true })
+      .selectOption(bank.id);
     await page.getByLabel('Amount (MYR)', { exact: true }).fill('25');
     await page.getByLabel('Payee / payer', { exact: true }).fill('Lunch');
     await page.getByRole('button', { name: 'Confirm transaction', exact: true }).click();
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await page.getByRole('button', { name: 'New transaction', exact: true }).click();
-    await page.getByRole('combobox', { name: 'Transaction kind', exact: true }).selectOption('transfer');
+    await page
+      .getByRole('combobox', { name: 'Transaction kind', exact: true })
+      .selectOption('transfer');
     await page.getByRole('combobox', { name: 'From account', exact: true }).selectOption(bank.id);
     await page.getByRole('combobox', { name: 'To account', exact: true }).selectOption(savings.id);
     await page.getByLabel('Amount (MYR)', { exact: true }).fill('100');
@@ -133,7 +141,9 @@ test('business workspace invoice payment counts income once and moves stock on i
     const workspace = (await bridge.call<Workspace[]>('list_workspaces')).find(
       (w) => w.name === 'Studio books',
     )!;
-    await page.getByRole('combobox', { name: 'Finance workspace', exact: true }).selectOption(workspace.id);
+    await page
+      .getByRole('combobox', { name: 'Finance workspace', exact: true })
+      .selectOption(workspace.id);
     await page.getByRole('button', { name: 'New account', exact: true }).click();
     await page.getByLabel('Account name', { exact: true }).fill('Business bank');
     await page.getByRole('button', { name: 'Save', exact: true }).click();
@@ -167,7 +177,9 @@ test('business workspace invoice payment counts income once and moves stock on i
       'list_inventory_items',
       { workspaceId: workspace.id },
     );
-    await page.getByRole('combobox', { name: 'Inventory item 1', exact: true }).selectOption(item.id);
+    await page
+      .getByRole('combobox', { name: 'Inventory item 1', exact: true })
+      .selectOption(item.id);
     await page.getByRole('button', { name: 'Save draft invoice', exact: true }).click();
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await page.getByRole('button', { name: 'Open invoice', exact: true }).click();
@@ -210,6 +222,129 @@ test('business workspace invoice payment counts income once and moves stock on i
     await page.screenshot({ path: testInfo.outputPath('paid-invoice.png'), fullPage: true });
     await page.getByRole('button', { name: 'Export invoice PDF', exact: true }).click();
     await expect(page.locator('.inline-error')).toHaveCount(0);
+  } finally {
+    await page.goto('about:blank');
+    await bridge.close();
+  }
+});
+
+test('business deletion protects history and Settings creates a real data archive', async ({
+  page,
+}) => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'folio-data-control-'));
+  const bridge = new RustBridge(path.join(directory, 'app'));
+  await installBridge(page, bridge, []);
+  await page.goto('about:blank');
+  try {
+    const workspace = await bridge.call<Workspace>('save_workspace', {
+      input: {
+        name: 'Deletion test',
+        baseCurrency: 'MYR',
+      },
+    });
+    const customer = async (name: string) =>
+      bridge.call<{ id: string }>('save_customer', {
+        input: {
+          workspaceId: workspace.id,
+          name,
+          registrationNumber: '',
+          tin: '',
+          address: '',
+          email: '',
+          phone: '',
+          archived: false,
+        },
+      });
+    const item = async (name: string) =>
+      bridge.call<{ id: string }>('save_inventory_item', {
+        input: {
+          workspaceId: workspace.id,
+          sku: name,
+          name,
+          unit: 'unit',
+          currency: 'MYR',
+          unitPriceMinor: 500,
+          archived: false,
+        },
+      });
+    const usedCustomer = await customer('Invoice customer');
+    await customer('Unused customer');
+    const usedItem = await item('Invoice item');
+    await item('Unused item');
+    await bridge.call('save_invoice', {
+      input: {
+        workspaceId: workspace.id,
+        customerId: usedCustomer.id,
+        currency: 'MYR',
+        issuedOn: '2026-11-05',
+        dueOn: '2026-11-30',
+        note: '',
+        lines: [
+          {
+            inventoryItemId: usedItem.id,
+            description: 'Invoice item',
+            quantityMilli: 1000,
+            unitPriceMinor: 500,
+            discountMinor: 0,
+            taxBasisPoints: 0,
+            classificationCode: '',
+          },
+        ],
+      },
+    });
+    await page.goto('/#/finance/business');
+    await page
+      .getByRole('combobox', { name: 'Finance workspace', exact: true })
+      .selectOption(workspace.id);
+    await page.getByRole('button', { name: 'Customers', exact: true }).click();
+    await page.getByRole('button', { name: 'Delete Unused customer', exact: true }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(
+      page.getByRole('button', { name: 'Delete Unused customer', exact: true }),
+    ).toBeVisible();
+    await page.getByRole('button', { name: 'Delete Unused customer', exact: true }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Delete', exact: true }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(
+      page.getByRole('button', { name: 'Delete Unused customer', exact: true }),
+    ).toHaveCount(0);
+    await page.getByRole('button', { name: 'Delete Invoice customer', exact: true }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Delete', exact: true }).click();
+    await expect(
+      page.getByRole('dialog').getByText('This customer is on invoices.', { exact: false }),
+    ).toBeVisible();
+    await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
+    await page.getByRole('button', { name: 'Inventory', exact: true }).click();
+    await page.getByRole('button', { name: 'Delete Unused item', exact: true }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Delete', exact: true }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Delete Unused item', exact: true })).toHaveCount(
+      0,
+    );
+    await page.getByRole('button', { name: 'Delete Invoice item', exact: true }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Delete', exact: true }).click();
+    await expect(
+      page
+        .getByRole('dialog')
+        .getByText('This item has stock history or is on an invoice.', { exact: false }),
+    ).toBeVisible();
+    await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
+    await page.goto('/#/settings');
+    await page.getByRole('button', { name: 'Create data archive', exact: true }).click();
+    const panel = page
+      .locator('.panel')
+      .filter({ has: page.getByRole('heading', { name: 'Export all my data', exact: true }) });
+    await expect(panel.getByText(/^Saved \d+ files to/)).toBeVisible();
+    const exportPath = await panel.locator('code').innerText();
+    expect((await readFile(exportPath)).subarray(0, 4)).toEqual(
+      Buffer.from([0x50, 0x4b, 0x03, 0x04]),
+    );
+    expect(
+      await bridge.call<unknown[]>('list_customers', { workspaceId: workspace.id }),
+    ).toHaveLength(1);
+    expect(
+      await bridge.call<unknown[]>('list_inventory_items', { workspaceId: workspace.id }),
+    ).toHaveLength(1);
   } finally {
     await page.goto('about:blank');
     await bridge.close();

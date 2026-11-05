@@ -8,7 +8,7 @@ import type { AppError } from "@folio/bindings/generated";
 const READS = new Set([
   "list_expenses", "get_expense", "read_receipt", "read_thumbnail", "list_claims", "get_claim",
   "get_settings", "app_info", "list_jobs", "export_snapshot", "open_export", "open_csv_export",
-  "open_xlsx_export",
+  "open_xlsx_export", "open_data_export",
 ]);
 
 const READ_ONLY_NAME = /^(list|get|read|report|parse)_/;

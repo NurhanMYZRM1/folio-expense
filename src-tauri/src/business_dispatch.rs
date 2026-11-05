@@ -38,6 +38,8 @@ pub fn dispatch(s: &AppService, command: &str, a: Value) -> Result<Value> {
             out!(s.list_customers(workspace(), a["includeArchived"].as_bool().unwrap_or(false)))
         }
         "save_customer" => out!(s.save_customer(arg!("input"))),
+        "delete_customer" => out!(s.delete_customer(id())),
+        "delete_inventory_item" => out!(s.delete_inventory_item(id())),
         "list_inventory_items" => {
             out!(s
                 .list_inventory_items(workspace(), a["includeArchived"].as_bool().unwrap_or(false)))

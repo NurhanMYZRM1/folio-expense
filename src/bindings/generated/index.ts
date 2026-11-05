@@ -69,6 +69,7 @@ notifyBudgets: boolean,
 paymentAlertsEnabled: boolean, };
 export type AppInfo = { dataDirectory: string, version: string, credentialConfigured: boolean, };
 export type CsvExport = { id: string, fileName: string, path: string, rows: number, };
+export type DataExport = { id: string, fileName: string, path: string, files: number, };
 export type WorkspaceKind = "personal" | "business";
 export type Workspace = { id: string, kind: WorkspaceKind, name: string, baseCurrency: string, createdAt: string, updatedAt: string, version: number, syncState: string, };
 export type WorkspaceInput = { 

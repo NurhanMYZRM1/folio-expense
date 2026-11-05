@@ -366,6 +366,48 @@ impl AppService {
         tx.commit()?;
         Ok(item)
     }
+    /// Deletes a customer that no invoice refers to; used customers are archived instead.
+    pub fn delete_customer(&self, id: &str) -> Result<()> {
+        let mut db = self.conn()?;
+        let tx = db.transaction()?;
+        let used: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM invoices WHERE customer_id=?1)",
+            [id],
+            |r| r.get(0),
+        )?;
+        if used {
+            return Err(AppError::invalid(
+                "This customer is on invoices. Archive the customer to keep invoice history.",
+            ));
+        }
+        if tx.execute("DELETE FROM customers WHERE id=?1", [id])? == 0 {
+            return Err(AppError::not_found());
+        }
+        tx.commit()?;
+        Ok(())
+    }
+    /// Deletes an item with no stock history and on no invoice line; others are archived instead.
+    pub fn delete_inventory_item(&self, id: &str) -> Result<()> {
+        let mut db = self.conn()?;
+        let tx = db.transaction()?;
+        let used: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM stock_movements WHERE item_id=?1)
+              OR EXISTS(SELECT 1 FROM invoices i, json_tree(i.data) j
+                         WHERE j.key='inventoryItemId' AND j.atom=?1)",
+            [id],
+            |r| r.get(0),
+        )?;
+        if used {
+            return Err(AppError::invalid(
+                "This item has stock history or is on an invoice. Archive it to keep that history.",
+            ));
+        }
+        if tx.execute("DELETE FROM inventory_items WHERE id=?1", [id])? == 0 {
+            return Err(AppError::not_found());
+        }
+        tx.commit()?;
+        Ok(())
+    }
     pub fn adjust_stock(&self, input: StockAdjustmentInput) -> Result<InventoryItem> {
         uuid(&input.request_id)?;
         date(&input.occurred_on)?;

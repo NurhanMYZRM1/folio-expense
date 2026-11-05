@@ -1,4 +1,5 @@
 import { PaymentDetection } from '../finance/PaymentDetection';
+import { DataExport } from './DataExport';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { ShieldCheck, Monitor, KeyRound, FolderOpen, Save, LockKeyhole, Info } from 'lucide-react';
@@ -264,6 +265,7 @@ export function Settings() {
             </div>
           </Panel>
           <PaymentDetection onSaved={(enabled) => update('paymentAlertsEnabled', enabled)} />
+          <DataExport />
           <Panel title="Finance notifications">
             <div className="settings-fields">
               <Toggle

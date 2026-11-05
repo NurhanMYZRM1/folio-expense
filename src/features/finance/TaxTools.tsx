@@ -57,7 +57,10 @@ function IncomeEstimate({ rules }: { rules: TaxRules }) {
     }
   }
   return (
-    <Panel title={`Resident income tax · YA ${rules.assessmentYear}`}>
+    <Panel
+      title={`Resident income tax · YA ${rules.assessmentYear}`}
+      className="finance-form-panel"
+    >
       <p className="notice-box">
         Estimate only, calculated on your device. YA 2026 is not supported. No tax return is filed.
       </p>
@@ -242,7 +245,7 @@ function SstEstimate() {
     }
   }
   return (
-    <Panel title="SST arithmetic helper">
+    <Panel title="SST arithmetic helper" className="finance-form-panel">
       <p className="muted">
         Select a rate you have confirmed with Customs. Folio does not determine taxable goods,
         registration, exemptions or effective-date rules.

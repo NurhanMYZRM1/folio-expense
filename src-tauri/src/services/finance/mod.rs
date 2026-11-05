@@ -243,6 +243,17 @@ impl AppService {
         let tx = db.transaction()?;
         workspace(&tx, &input.workspace_id)?;
         let c = input.id.clone().unwrap_or_else(id);
+        // The column is COLLATE NOCASE, so this matches the UNIQUE constraint exactly.
+        let taken: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM categories WHERE workspace_id=?1 AND kind=?2 AND name=?3 AND id<>?4)",
+            params![input.workspace_id, key(input.kind), input.name.trim(), c],
+            |r| r.get(0),
+        )?;
+        if taken {
+            return Err(AppError::invalid(
+                "A category with this name already exists. Choose another name.",
+            ));
+        }
         if input.id.is_some() {
             let before:Category=one(&tx,"SELECT id,workspace_id,kind,name,archived_at,version,sync_state FROM categories WHERE id=?1",[&c])?;
             if before.workspace_id != input.workspace_id || before.kind != input.kind {

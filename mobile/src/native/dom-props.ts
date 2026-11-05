@@ -39,6 +39,7 @@ function remember(command: string, args: string, response: string) {
     claimNumbers.set(claim.id, claim.claimNumber);
   } else if (
     command === "save_invoice_pdf" ||
+    command === "export_all_data" ||
     command === "export_transactions_csv" ||
     command === "export_claim_csv" ||
     command === "export_expenses_csv" ||
@@ -76,7 +77,7 @@ async function invoke(command: string, args: string): Promise<string> {
   }
   const response = await invokeRaw(command, args);
   if (response.startsWith('{"error"')) return response;
-  if (command === "open_invoice_pdf" || command === "open_export" || command === "open_csv_export" || command === "open_xlsx_export") {
+  if (command === "open_invoice_pdf" || command === "open_export" || command === "open_csv_export" || command === "open_xlsx_export" || command === "open_data_export") {
     const path = (JSON.parse(response) as { result?: string }).result;
     const id = (JSON.parse(args) as { id?: string }).id ?? "";
     if (path) await share(path, exportNames.get(id) ?? (command === "open_invoice_pdf" || command === "open_export" ? "Folio claim report.pdf" : undefined));

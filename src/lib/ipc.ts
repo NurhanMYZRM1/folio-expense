@@ -48,6 +48,7 @@ import type {
   ClaimDetail,
   ClaimStatus,
   CsvExport,
+  DataExport,
   Expense,
   ExpenseEdit,
   ExportSnapshot,
@@ -67,6 +68,8 @@ function call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   return invoke<T>(command, args);
 }
 export const api = {
+  exportAllData: () => call<DataExport>('export_all_data'),
+  openDataExport: (id: string) => call<void>('open_data_export', { id }),
   expenses: () => call<Expense[]>('list_expenses'),
   expense: (id: string) => call<Expense>('get_expense', { id }),
   createExpense: () => call<Expense>('create_expense'),
@@ -132,6 +135,8 @@ export const api = {
   customers: (workspaceId: string, includeArchived = false) =>
     call<Customer[]>('list_customers', { workspaceId, includeArchived }),
   saveCustomer: (input: CustomerInput) => call<Customer>('save_customer', { input }),
+  deleteCustomer: (id: string) => call<void>('delete_customer', { id }),
+  deleteInventoryItem: (id: string) => call<void>('delete_inventory_item', { id }),
   inventoryItems: (workspaceId: string, includeArchived = false) =>
     call<InventoryItem[]>('list_inventory_items', { workspaceId, includeArchived }),
   saveInventoryItem: (input: InventoryItemInput) =>

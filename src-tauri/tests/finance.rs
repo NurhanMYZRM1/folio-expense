@@ -378,3 +378,42 @@ fn csv_export_can_be_opened_and_guards_spreadsheet_formulas() {
     assert!(csv.contains("'=HYPERLINK"));
     assert!(csv.contains("\"line1\nline2, quoted\""));
 }
+#[test]
+fn category_names_are_unique_per_kind_and_used_categories_are_archived_not_deleted() {
+    let (_t, s) = service();
+    let w = s.workspaces().unwrap().remove(0).id;
+    let save = |name: &str, kind: &str, existing: Option<&Category>, archived: bool| {
+        s.save_category(serde_json::from_value(json!({"id":existing.map(|c| &c.id),"version":existing.map(|c| c.version),"workspaceId":w,"kind":kind,"name":name,"archived":archived})).unwrap())
+    };
+    let coffee = save("Coffee", "expense", None, false).unwrap();
+    // Differing only in case and spacing is still the same name for the same kind.
+    let duplicate = save("  coffee ", "expense", None, false).unwrap_err();
+    assert!(
+        duplicate.message.contains("already exists"),
+        "{}",
+        duplicate.message
+    );
+    save("Coffee", "income", None, false).unwrap();
+    let tea = save("Tea", "expense", None, false).unwrap();
+    assert!(save("COFFEE", "expense", Some(&tea), false).is_err());
+    let coffee = save("Coffee", "expense", Some(&coffee), false).unwrap();
+    // A category in use cannot be deleted; archiving keeps its history.
+    let bank = account(&s, &w, "Bank", 0);
+    let mut spend = transaction(&w, &bank.id, "expense", 500);
+    spend.category_id = Some(coffee.id.clone());
+    s.save_transaction(spend).unwrap();
+    let in_use = s.delete_category(&coffee.id).unwrap_err();
+    assert!(in_use.message.contains("Archive"), "{}", in_use.message);
+    assert!(save("Coffee", "expense", Some(&coffee), true)
+        .unwrap()
+        .archived_at
+        .is_some());
+    s.delete_category(&tea.id).unwrap();
+    let names: Vec<_> = s
+        .categories(&w)
+        .unwrap()
+        .into_iter()
+        .map(|c| c.name)
+        .collect();
+    assert!(names.contains(&"Coffee".to_string()) && !names.contains(&"Tea".to_string()));
+}

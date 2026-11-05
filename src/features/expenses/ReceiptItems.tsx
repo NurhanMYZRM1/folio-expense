@@ -89,6 +89,7 @@ function ReviewEditor({ initial, locked }: { initial: ReceiptItemsReview; locked
   return (
     <Panel
       title="Receipt line items"
+      className="finance-form-panel"
       action={
         <span className={`badge ${saved.reviewed && !dirty ? 'ready' : 'needs_review'}`}>
           {saved.reviewed && !dirty ? 'Reviewed' : 'Needs review'}

@@ -61,6 +61,7 @@ macro_rules! handler_with_core_commands {
 }
 handler_with_core_commands!(
     [
+        exports::open_data_export,
         business::open_invoice_pdf,
         expenses::list_expenses,
         expenses::get_expense,
@@ -131,6 +132,7 @@ handler_with_core_commands!(
         report_monthly,
         report_overview,
         export_transactions_csv,
+        export_all_data,
         list_reminders,
         ack_reminder,
         parse_quick_add,
@@ -147,6 +149,8 @@ handler_with_core_commands!(
         save_customer,
         list_inventory_items,
         save_inventory_item,
+        delete_customer,
+        delete_inventory_item,
         adjust_stock,
         list_stock_movements,
         list_invoices,

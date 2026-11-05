@@ -3063,6 +3063,41 @@ body {
 .finance-budget-body {
   padding: 20px;
 }
+/* Panel does not pad its children; form panels inset everything except padded blocks and banners. */
+.finance-form-panel > :not(.panel-heading, .finance-budget-body, .notice-box) {
+  margin: 16px 22px;
+}
+.finance-form-panel :is(p, summary, .muted) {
+  font-size: 13px;
+  line-height: 1.6;
+}
+.finance-form-panel form p {
+  margin: 6px 0 14px;
+}
+.finance-form-panel .finance-card-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(130px, 100%), 1fr));
+  align-items: end;
+  gap: 12px;
+  margin: 12px 0;
+}
+.check-field {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+.check-field input[type='checkbox'] {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  min-height: 0;
+  margin: 1px 0 0;
+  padding: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
 .finance-account .panel-heading {
   padding: 0;
   margin-bottom: 20px;

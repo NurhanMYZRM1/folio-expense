@@ -15,6 +15,7 @@ import { exportInvoicePdf } from '../../lib/invoicePdf';
 import { EmptyState, Loading, Panel } from '../../components/ui';
 import {
   AccountOptions,
+  ConfirmDelete,
   Field,
   FinanceDialog,
   FinanceFrame,
@@ -602,6 +603,9 @@ function BusinessContent() {
     [itemEdit, setItemEdit] = useState<InventoryItem | 'new' | null>(null),
     [stock, setStock] = useState<InventoryItem | null>(null),
     [history, setHistory] = useState<InventoryItem | null>(null),
+    [remove, setRemove] = useState<{ kind: 'customer' | 'item'; id: string; name: string } | null>(
+      null,
+    ),
     [invoiceEdit, setInvoiceEdit] = useState<Invoice | 'new' | null>(null),
     [selected, setSelected] = useState(''),
     [payment, setPayment] = useState<Invoice | null>(null),
@@ -689,6 +693,12 @@ function BusinessContent() {
                     <button className="text-button" onClick={() => setCustomerEdit(c)}>
                       Edit {c.name}
                     </button>
+                    <button
+                      className="text-button danger-text"
+                      onClick={() => setRemove({ kind: 'customer', id: c.id, name: c.name })}
+                    >
+                      Delete {c.name}
+                    </button>
                   </div>
                 ))
               ) : (
@@ -729,6 +739,12 @@ function BusinessContent() {
                     </button>
                     <button className="text-button" onClick={() => setItemEdit(i)}>
                       Edit {i.name}
+                    </button>
+                    <button
+                      className="text-button danger-text"
+                      onClick={() => setRemove({ kind: 'item', id: i.id, name: i.name })}
+                    >
+                      Delete {i.name}
                     </button>
                   </div>
                 ))
@@ -1012,6 +1028,23 @@ function BusinessContent() {
           )}
           {stock && <StockEditor item={stock} close={() => setStock(null)} />}
           {history && <StockHistory item={history} close={() => setHistory(null)} />}
+          {remove && (
+            <ConfirmDelete
+              title={`Delete ${remove.name}?`}
+              description={
+                remove.kind === 'customer'
+                  ? 'Only a customer that is on no invoice can be deleted. Archive it to keep invoice history.'
+                  : 'Only an item with no stock history and on no invoice can be deleted. Archive it to keep that history.'
+              }
+              close={() => setRemove(null)}
+              remove={async () => {
+                await (remove.kind === 'customer'
+                  ? api.deleteCustomer(remove.id)
+                  : api.deleteInventoryItem(remove.id));
+                await refreshFinance();
+              }}
+            />
+          )}
           {invoiceEdit && (
             <InvoiceEditor
               invoice={invoiceEdit === 'new' ? undefined : invoiceEdit}

@@ -1,6 +1,7 @@
 pub mod business;
 pub mod claim_service;
 pub mod csv_export;
+pub mod data_export;
 pub mod exchange_rates;
 pub mod expense_service;
 pub mod extraction;
