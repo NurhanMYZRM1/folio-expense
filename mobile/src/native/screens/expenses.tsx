@@ -6,7 +6,7 @@ import * as Haptics from "expo-haptics";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import { SymbolView } from "expo-symbols";
 import { useMemo, useState } from "react";
-import { RefreshControl, StyleSheet, Text, useColorScheme, View } from "react-native";
+import { RefreshControl, StyleSheet, Text, useColorScheme, View, type ListRenderItemInfo } from "react-native";
 import Animated from "react-native-reanimated";
 import type { Expense } from "@folio/bindings/generated";
 import { formatMoney, sumMinor } from "@folio/lib/money";
@@ -87,14 +87,14 @@ export default function ExpensesScreen() {
           ),
         }}
       />
-      <Animated.FlatList
+      <Animated.FlatList<Expense>
         style={{ flex: 1, backgroundColor: p.bg }}
         contentInsetAdjustmentBehavior="automatic"
         data={visible}
-        keyExtractor={(e) => e.id}
+        keyExtractor={(e: Expense) => e.id}
         // Switching a status or searching: rows that stay glide to their new places.
         itemLayoutAnimation={settle}
-        renderItem={({ item, index }) => (
+        renderItem={({ item, index }: ListRenderItemInfo<Expense>) => (
           <Animated.View entering={index < ANIMATED_ROWS ? listEntering(index) : undefined} exiting={quickExit}>
             <ExpenseRow expense={item} />
           </Animated.View>

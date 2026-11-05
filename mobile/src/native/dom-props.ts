@@ -143,6 +143,7 @@ export function useFolioDomProps(template: string): FolioHostProps {
     syncTitle: !TAB_ROOTS.has(template),
     path,
     dataVersion,
-    dom: { style: { flex: 1 } },
+    // Expo's DOM WebView can lose its native view tag during tab mounting on SDK 58.
+    dom: { style: { flex: 1 }, useExpoDOMWebView: false },
   };
 }
