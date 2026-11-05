@@ -4,61 +4,113 @@ Resume here. Read [DECISIONS.md](DECISIONS.md) (binding architecture) and
 [belanje-parity.md](belanje-parity.md) (scope and per-feature status) first.
 Branch: `feat/finance-parity` (local only, not pushed).
 
-## How the work is organised
+## Session history
 
-Claude Code Agent Teams was **not available** in the session that started
-this work: `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` was unset and no team or
-shared-task-list tools existed. The work instead uses a lead plus subagents,
-each in its own git worktree. Subagents report to the lead and cannot message
-each other; the lead owns contracts, migrations, shared files and integration.
-This is not an Agent Team and is not described as one.
+| Session        | Agent                          | Outcome                                                                                                                                                                                                      |
+| -------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1              | Claude Code (lead + 4)         | Phase 1: matrix, decisions D1–D10, ledger contract (`848cd63`, `c5d5a14`). Subagents stopped at the usage limit before writing code; their worktrees under `.claude/worktrees/` hold only superseded drafts. |
+| 2              | Codex (lead + 3)               | Phases 2–4 and parts of 3, 5, 6 written in the main tree, uncommitted, then stopped at the usage limit mid simulator checks.                                                                                 |
+| 3 (2026-11-05) | Claude Code (lead + subagents) | Verified and committed session 2 (`b9735bd`); fixed the finance e2e locators; continuing Phase 5–7.                                                                                                          |
 
-| Stream                     | Owns                                                                                                                                                                                                   | Must not touch                           |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------- |
-| Lead                       | `docs/DECISIONS.md`, migrations numbering, `db/mod.rs`, `Cargo.toml`/`package.json` dependencies, `commands/mod.rs` lists, integration, final verification                                             | —                                        |
-| CF core finance            | `src-tauri/src/services/finance/**`, `src-tauri/src/repository/finance*.rs`, `src-tauri/tests/finance.rs`, ledger entries in `dispatch.rs`, ledger hooks in `expense_service.rs` / `exchange_rates.rs` | React, mobile, migrations                |
-| UI product interface       | `src/**` except bindings                                                                                                                                                                               | Rust, mobile                             |
-| BT business and tax        | migration `005`, `src-tauri/src/{domain,services}/{business,tax}/**`, `src-tauri/tests/business.rs`, `docs/tax-sources.md`                                                                             | React, mobile, ledger services           |
-| MP mobile/platform         | `mobile/**`, `src-tauri/src/ffi.rs`, Android/secret-store glue                                                                                                                                         | React `src/**`, ledger/business services |
-| CS cloud/security (wave 2) | `supabase/**`, sync engine, auth                                                                                                                                                                       | —                                        |
+Agent Teams (shared task list, teammate messaging) has not been available in
+any session; work uses a lead plus subagents in separate worktrees. That is not
+an Agent Team and is not described as one.
 
-Migration numbers: 004 ledger (lead, done), 005 business and tax (BT),
-006+ assigned by the lead when needed.
+## Current state (2026-11-05, `b9735bd`)
 
-## Baseline (main @ 126d459, 2026-11-05, before any change)
+Schema v7: `004` ledger, `005` business, `006` sync metadata, `007` receipt
+line items. Commands are JSON operations in `dispatch.rs` and
+`business_dispatch.rs` (D5).
 
-All green: `npm ci`, `npm run assets`, `npm run lint` (0 errors, 7 existing
-warnings), `npm run build`, `npm test` (40), `npm run format:check`,
-`npm run test:rust` (115 unit + 51 integration), `npm run lint:rust`, mobile
-clippy (`--no-default-features --features mobile`), `npm run test:driver`,
-`npm run test:e2e` (8/8, Chrome).
+Implemented and tested in Rust, with desktop UI:
 
-Mobile (`mobile/`): `npx tsc --noEmit` passes. `npx expo lint` **fails on
-main already**: it resolves the root ESLint config, which ignores `mobile/`,
-so every file is ignored and ESLint exits 2. Pre-existing, not a regression.
+- Personal finance: accounts, savings goals and loans as accounts (D2),
+  transactions and transfers, categories, budgets with one-time alerts, bills
+  with month-end recurrence and idempotent payments, reminders, monthly
+  reports, transaction CSV export.
+- Receipts: line-item extraction and review with reconciliation, recording a
+  reviewed receipt into the ledger, quick-add text parsing to a review form.
+- Business: profile, customers, inventory and stock movements, invoices
+  (numbering, SST, issue/void, payments as one income entry), invoice PDF.
+- Tax: YA2025 resident estimate, SST arithmetic, e-invoice field validation
+  (prepared only, never submitted). Sources: [tax-sources.md](tax-sources.md).
+- Android: JNI bridge (`src-tauri/src/mobile_jni.rs`), Kotlin module with
+  ML Kit OCR, PDF rendering, speech recognition and an opt-in payment
+  notification listener (Maybank, Touch 'n Go eWallet allowlist).
+- Mobile: finance DOM pages, local reminder scheduling (`expo-notifications`),
+  iOS speech (`FolioSpeech.swift`).
+- Server schema only: `supabase/migrations/…_finance_sync.sql` (RLS,
+  idempotent `sync_push`/`sync_pull`, hashed expiring invitations, member
+  removal, receipt storage policies) and `supabase/tests/sync-security.sql`.
 
-## Done
+Not started or incomplete:
 
-- Phase 1: source review, coverage matrix, decisions D1–D10.
-- Ledger contract: migration `004_finance_ledger.sql` (schema v4), domain
-  types `src-tauri/src/domain/finance.rs` (exported to TypeScript), typed
-  client in `src/lib/ipc.ts`, desktop commands generated from one list in
-  `src-tauri/src/commands/mod.rs`, mobile read-only naming rule
-  (`mobile/src/core/folio.ts`), notification settings.
+- `src-tauri/src/services/sync/` is empty: no Rust sync client, no change
+  capture triggers (`006_sync.sql` refers to `sync::initialize_sync`, which
+  does not exist yet), no sign-in, no account or team UI.
+- SQLCipher encryption, full data export, account deletion, bill split,
+  entitlements, business record deletion (customers, inventory items).
+- Category rules (duplicate names, deleting a used category) exist but have
+  no tests; a duplicate name surfaces a raw constraint error.
+- No upgrade test from a pre-finance (v3, `main`) database with receipts,
+  claims and audit history.
+- Tax and receipt line-item panels lack body padding and `.check-field`
+  styles (seen during verification; functional, not visually coherent).
+- Supabase SQL tests have not been run in this session.
+- iOS simulator build failed at link time in session 2 (`folio_invoke`
+  undefined) while the Rust xcframework was being rebuilt in parallel; the
+  rebuilt xcframework contains the symbols. Rebuild to confirm.
+- Android: APK builds (arm64); not yet run on the emulator.
 
-## In progress
+## Checks at `b9735bd`
 
-Wave 1 (parallel worktrees): CF ledger services and tests; UI information
-architecture and personal-finance screens; BT tax research, tax engine and
-business backend; MP Android core, notifications, voice, payment alerts.
+| Check                                                                 | Result                                                |
+| --------------------------------------------------------------------- | ----------------------------------------------------- |
+| `npm run lint`                                                        | 0 errors, 7 warnings (same as baseline)               |
+| `npm run build`                                                       | passed                                                |
+| `npm test`                                                            | 40 passed                                             |
+| `npm run format:check`                                                | passed (after formatting 3 TS and several Rust files) |
+| `npm run test:rust`                                                   | 194 passed (117 unit, 77 integration)                 |
+| `npm run lint:rust`; clippy `--no-default-features --features mobile` | passed                                                |
+| `npm run test:driver`                                                 | passed                                                |
+| `npm run test:e2e`                                                    | 10 passed (8 baseline + 2 finance journeys)           |
+| Mobile `npx tsc --noEmit`; `npx expo lint`                            | passed; 0 errors, 2 warnings                          |
+| Android `:app:assembleDebug` (arm64-v8a)                              | passed (session 2 log)                                |
+| iOS simulator `xcodebuild`                                            | failed at link (see above), to rerun                  |
 
-## Next actionable task
+Desktop UI verification: receipt → OCR → three line items reconciled to the
+total → record panel; quick add "Lunch 12.50 yesterday" → review with
+nothing saved; every finance screen rendered with persisted data and no page
+errors (`/verify`, real Rust and SQLite).
 
-Integrate CF first (UI and BT depend on it), then UI, BT, MP; rerun the full
-check list after each merge.
+## Ownership for the remaining work
+
+| Stream                 | Owns                                                                                                                                    |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Lead                   | docs, migration numbers, `Cargo.toml`/`package.json`, `db/mod.rs`, integration, encryption, export/deletion, upgrade fixture, UI polish |
+| CS cloud (subagent)    | `src-tauri/src/services/sync/**`, `sync_dispatch.rs`, `tests/sync.rs`, `supabase/**`, account/sync/team UI                              |
+| MP platform (subagent) | `mobile/**`, `src-tauri/src/{ffi,mobile_jni}.rs`; Android and iOS runtime checks, payment notification journey                          |
+
+Migration numbers: 008 reserved for sync change capture (CS), 009 for the
+lead.
+
+## Next actionable tasks
+
+1. CS: Rust sync client (D7) and email sign-in (D8) against the local
+   Supabase stack; journeys 6 and 7.
+2. MP: iOS rebuild and simulator run; Android emulator run; journey 9.
+3. Lead: upgrade fixture, category tests, panel styles, full data export,
+   SQLCipher (D9), bill split, entitlements scaffold (gating off).
 
 ## External blockers (owner action)
 
 - Supabase project, Apple/Google sign-in credentials (production auth/sync).
 - App Store Connect / Google Play products and RevenueCat keys (paid plans).
 - Apple/Windows signing identities (distribution; unchanged from before).
+
+## Notes for later work
+
+- The first session's tax research draft in
+  `.claude/worktrees/agent-a17b1e40b2be39cd2/docs/tax-sources.md` also cites
+  public ruling PR 3/2023 and the 2026 PCB computerised-calculation
+  specification, which would be needed to compute PCB (today PCB is an input).
