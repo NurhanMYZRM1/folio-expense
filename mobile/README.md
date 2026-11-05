@@ -1,8 +1,27 @@
 # Folio mobile
 
-Expo (SDK 57) app that reuses the desktop React code from `../src` and the Rust core in
+Expo (SDK 58) app that reuses the desktop React code from `../src` and the Rust core in
 `../src-tauri` through the `modules/folio-core` native module. See `AGENTS.md` for the
 day-to-day commands and `migration-progress.md` for the migration status.
+
+## Run on an iPhone
+
+Folio requires its own development build because `modules/folio-core` contains
+custom Rust/Swift code. Expo Go cannot load that module.
+
+With a paired iPhone, Developer Mode enabled, and an Apple development signing
+identity configured on the Mac:
+
+```bash
+cd mobile
+npm ci
+npm run ios -- --device
+```
+
+This compiles the Rust core, builds and installs the iOS development client, and
+starts Metro on port 8082. Keep the Mac and iPhone on the same network. After the
+first install, use `npm start` and open the development server in Folio. Rebuild
+the development client after an Expo SDK or native module change.
 
 ## Build & release
 
@@ -10,18 +29,14 @@ Builds and over-the-air (OTA) updates run on EAS under the Expo account
 [`squadralennox`](https://expo.dev/accounts/squadralennox) (`expo.owner` in `app.json`).
 Run all `eas` commands from this `mobile/` folder.
 
-> **TODO before the first build: link the EAS project.** `extra.eas.projectId` and
-> `updates.url` are intentionally not in `app.json` yet; they need the project ID, which only
-> exists after the project is created on expo.dev. Do the one-time setup below and commit
-> the resulting `app.json` change.
+The app is linked to EAS project `5010a68a-a7af-4b99-93c9-900a0e0292ee`.
+`extra.eas.projectId` and `updates.url` are configured in `app.json`.
 
-### One-time setup
+### Sign in
 
 ```bash
 npx eas-cli@latest login            # your Expo account (squadralennox)
-npx eas-cli@latest init --force     # creates/links the project, writes extra.eas.projectId
-npx eas-cli@latest update:configure # writes updates.url (needs the project ID from the step above)
-git diff app.json                   # expect extra.eas.projectId + updates.url; commit them
+npx eas-cli@latest whoami           # verify access to the squadralennox account
 ```
 
 ### Everyday commands
