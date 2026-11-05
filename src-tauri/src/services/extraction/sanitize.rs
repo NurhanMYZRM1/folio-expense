@@ -378,6 +378,18 @@ pub fn sanitize(result: Extraction, default_currency: &str, today: NaiveDate) ->
         confidence.insert(key.to_string(), value);
     }
     r.confidence = confidence;
+    let default_adjustments = Default::default();
+    if crate::services::receipt_items::validate_items(
+        &r.line_items,
+        r.line_item_adjustments
+            .as_ref()
+            .unwrap_or(&default_adjustments),
+    )
+    .is_err()
+    {
+        r.line_items.clear();
+        r.line_item_adjustments = None;
+    }
 
     r
 }
@@ -399,6 +411,8 @@ mod tests {
             currency: Some("RM".into()),
             suggested_category: Some("Meals".into()),
             premises: None,
+            line_items: vec![],
+            line_item_adjustments: None,
             confidence: BTreeMap::from([
                 ("merchantName".to_string(), 0.9),
                 ("date".to_string(), 0.9),
@@ -759,6 +773,8 @@ mod tests {
             currency: Some("ZZZ".into()),
             suggested_category: Some("NotACategory".into()),
             premises: Some(format!("No 1,\u{0007} Jalan {}\n", "X".repeat(600))),
+            line_items: vec![],
+            line_item_adjustments: None,
             confidence: BTreeMap::from([
                 ("merchantName".to_string(), 0.9),
                 ("date".to_string(), f64::NAN),

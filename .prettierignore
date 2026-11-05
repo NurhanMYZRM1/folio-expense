@@ -16,3 +16,5 @@ playwright-report
 *.tsbuildinfo
 public/licenses
 mobile
+
+.claude/

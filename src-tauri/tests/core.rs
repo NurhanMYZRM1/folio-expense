@@ -171,7 +171,7 @@ fn migrations_are_idempotent_and_constraints_work() {
             |r| r.get(0),
         )
         .unwrap();
-    assert_eq!(count, 17);
+    assert_eq!(count, 30);
     let version: i32 = db
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();

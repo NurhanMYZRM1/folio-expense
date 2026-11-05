@@ -1,10 +1,16 @@
+pub mod business;
 pub mod claim_service;
 pub mod csv_export;
 pub mod exchange_rates;
 pub mod expense_service;
 pub mod extraction;
+pub mod finance;
+pub mod invoice_export;
+pub mod payment_notifications;
+pub mod receipt_items;
 pub mod receipt_service;
 pub mod settings_service;
+pub mod tax;
 use crate::{
     db,
     error::{AppError, Result},
@@ -35,6 +41,7 @@ impl AppService {
             rates: Arc::new(exchange_rates::FrankfurterRates),
             online_backoff: Mutex::default(),
         };
+        service.initialize_finance()?;
         service.recover_jobs()?;
         service.recover_storage()?;
         Ok(service)

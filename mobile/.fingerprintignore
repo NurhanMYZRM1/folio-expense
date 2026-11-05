@@ -3,3 +3,4 @@
 # on EAS by the eas-build-pre-install hook, and its bytes can differ between
 # machines, which would give `eas update` and the EAS build different fingerprints.
 modules/folio-core/ios/Frameworks/**/*
+modules/folio-core/android/src/main/jniLibs/**/*

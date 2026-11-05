@@ -1,8 +1,9 @@
 import { Stack, ThemeProvider } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect, useState } from "react";
-import { ScrollView, Text, useColorScheme } from "react-native";
-import { dataRoot, errorText, openCore } from "~/core/folio";
+import { AppState, ScrollView, Text, useColorScheme } from "react-native";
+import { dataRoot, errorText, openCore, useDataVersion } from "~/core/folio";
+import { syncReminders } from "~/core/reminders";
 import { startJobRunner } from "~/core/jobs";
 import { notify, setProcessing, StatusOverlay } from "~/native/status";
 import { navTheme, palette } from "~/native/theme";
@@ -10,6 +11,14 @@ import { navTheme, palette } from "~/native/theme";
 void SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
+  const version = useDataVersion();
+  useEffect(() => {
+    void syncReminders().catch(() => undefined);
+  }, [version]);
+  useEffect(() => {
+    const listener = AppState.addEventListener("change", state => { if (state === "active") void syncReminders().catch(() => undefined); });
+    return () => listener.remove();
+  }, []);
   const scheme = useColorScheme() === "dark" ? "dark" : "light";
   const p = palette[scheme];
   const [state, setState] = useState<"opening" | "ready" | string>("opening");
@@ -42,6 +51,7 @@ export default function RootLayout() {
       <Stack screenOptions={{ headerBackButtonDisplayMode: "minimal", contentStyle: { backgroundColor: p.bg } }}>
         <Stack.Screen name="(tabs)" options={{ headerShown: false, title: "Folio" }} />
         <Stack.Screen name="expenses/[id]" options={{ title: "Expense" }} />
+        <Stack.Screen name="finance" options={{ headerShown: false }} />
         <Stack.Screen name="claims/[id]" options={{ title: "Claim" }} />
       </Stack>
       <StatusOverlay />

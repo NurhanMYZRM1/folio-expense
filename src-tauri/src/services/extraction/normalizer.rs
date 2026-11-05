@@ -39,6 +39,14 @@ pub fn validate(result: &Extraction) -> Result<()> {
     {
         return Err(invalid());
     }
+    crate::services::receipt_items::validate_items(
+        &result.line_items,
+        result
+            .line_item_adjustments
+            .as_ref()
+            .unwrap_or(&Default::default()),
+    )
+    .map_err(|_| invalid())?;
     let edit = ExpenseEdit {
         id: String::new(),
         version: 1,

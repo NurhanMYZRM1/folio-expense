@@ -1,4 +1,7 @@
-use folio::domain::{claim::*, expense::*, extraction::*, finance::*, receipt::*, settings::*};
+use folio::domain::{
+    business::*, claim::*, expense::*, extraction::*, finance::*, receipt::*, receipt_items::*,
+    settings::*, tax::*,
+};
 use folio::services::csv_export::CsvExport;
 use ts_rs::TS;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -63,7 +66,38 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Reminder,
         SuggestionStatus,
         TransactionSuggestion,
-        QuickAddDraft
+        QuickAddDraft,
+        BusinessProfile,
+        CustomerInput,
+        Customer,
+        InventoryItemInput,
+        InventoryItem,
+        StockAdjustmentInput,
+        StockMovement,
+        InvoiceLineInput,
+        InvoiceLine,
+        InvoiceStatus,
+        InvoiceInput,
+        Invoice,
+        InvoicePaymentInput,
+        InvoicePayment,
+        BusinessCurrencyTotal,
+        BusinessReport,
+        ReceiptItem,
+        ReceiptItemAdjustments,
+        ReceiptItemsReconciliation,
+        ReceiptItemsReview,
+        ReceiptItemsInput,
+        TaxReliefRule,
+        TaxBand,
+        TaxRules,
+        MaritalStatus,
+        TaxReliefClaim,
+        IncomeTaxInput,
+        IncomeTaxEstimate,
+        SstInput,
+        SstCalculation,
+        EinvoiceValidation
     );
     let path =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/bindings/generated/index.ts");

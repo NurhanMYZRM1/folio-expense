@@ -23,6 +23,7 @@
     "expo-image-manipulator": "~57.0.20",
     "expo-image-picker": "~57.0.20",
     "expo-linking": "~57.0.11",
+    "expo-notifications": "~57.0.25",
     "expo-router": "~57.0.24",
     "expo-sharing": "~57.0.22",
     "expo-splash-screen": "~57.0.9",
@@ -62,7 +63,9 @@
     "ios": "npm run rust:ios && expo run:ios --port 8082",
     "typecheck": "tsc --noEmit",
     "lint": "expo lint",
-    "eas-build-pre-install": "sh scripts/eas-build-pre-install.sh"
+    "eas-build-pre-install": "sh scripts/eas-build-pre-install.sh",
+    "rust:android": "sh scripts/build-rust-android.sh",
+    "android": "npm run rust:android && expo run:android --port 8082"
   },
   "private": true
 }

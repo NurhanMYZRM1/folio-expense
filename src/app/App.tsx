@@ -10,6 +10,7 @@ import {
 } from 'react-router-dom';
 import {
   LayoutDashboard,
+  Wallet,
   Rows3,
   Files,
   Upload,
@@ -30,6 +31,13 @@ import { Expenses } from '../features/expenses/Expenses';
 import { ExpenseDetail } from '../features/expenses/ExpenseDetail';
 import { ImportReceipts } from '../features/receipts/ImportReceipts';
 import { Claims, ClaimDetail } from '../features/claims/Claims';
+import { FinanceOverview, Reports } from '../features/finance/Overview';
+import { Accounts } from '../features/finance/Accounts';
+import { Transactions } from '../features/finance/Transactions';
+import { Budgets } from '../features/finance/Budgets';
+import { Business } from '../features/finance/Business';
+import { TaxTools } from '../features/finance/TaxTools';
+import { Bills } from '../features/finance/Bills';
 import { Settings } from '../features/settings/Settings';
 import { PageSkeleton } from '../components/ui';
 import { PageTransition, spring } from '../components/motion';
@@ -39,6 +47,7 @@ function NavPill({ id }: { id: string }) {
 }
 const navigation = [
   { to: '/', label: 'Overview', icon: LayoutDashboard },
+  { to: '/finance', label: 'Finance', icon: Wallet },
   { to: '/expenses', label: 'Expenses', icon: Rows3 },
   { to: '/claims', label: 'Claims', icon: Files },
   { to: '/import', label: 'Import receipts', icon: Upload },
@@ -230,6 +239,14 @@ function Shell() {
               <PageTransition key={location.pathname}>
                 <Routes location={location}>
                   <Route path="/" element={<Dashboard />} />
+                  <Route path="/finance" element={<FinanceOverview />} />
+                  <Route path="/finance/accounts" element={<Accounts />} />
+                  <Route path="/finance/transactions" element={<Transactions />} />
+                  <Route path="/finance/budgets" element={<Budgets />} />
+                  <Route path="/finance/bills" element={<Bills />} />
+                  <Route path="/finance/business" element={<Business />} />
+                  <Route path="/finance/tax" element={<TaxTools />} />
+                  <Route path="/finance/reports" element={<Reports />} />
                   <Route path="/expenses" element={<Expenses />} />
                   <Route path="/expenses/:id" element={<ExpenseDetail />} />
                   <Route path="/import" element={<ImportReceipts />} />

@@ -1,3 +1,4 @@
+import { FinanceProvider } from '../features/finance/shared';
 import {
   createContext,
   useCallback,
@@ -114,7 +115,7 @@ export function Providers({ children }: { children: ReactNode }) {
         processing,
       }}
     >
-      {children}
+      <FinanceProvider>{children}</FinanceProvider>
       <div className="toasts" aria-live="polite">
         <AnimatePresence initial={false} mode="popLayout">
           {notices.map((n) => (

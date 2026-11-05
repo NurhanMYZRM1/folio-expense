@@ -101,6 +101,15 @@ export function Dashboard() {
           </>
         }
       />
+      <div className="finance-dashboard-entry">
+        <div>
+          <strong>Track your everyday finances</strong>
+          <p>Accounts, transactions, budgets, bills and business tools.</p>
+        </div>
+        <Link className="button secondary" to="/finance">
+          Open finance
+        </Link>
+      </div>
       <div className="period-row">
         <span>
           <CalendarDays size={14} />

@@ -90,6 +90,7 @@ impl AppService {
             }
         }
         e.updated_at = now();
+        super::finance::sync_receipt_in(&tx, &e)?;
         expenses::save(&tx, &e)?;
         if let Some(ref claim_id) = e.claim_id {
             tx.execute("UPDATE expense_claims SET version=version+1,updated_at=?1,sync_state='local_only' WHERE id=?2",params![e.updated_at,claim_id])?;
@@ -150,6 +151,7 @@ impl AppService {
                 )?;
             }
             tx.execute("DELETE FROM extraction_runs WHERE expense_id=?1", [id])?;
+            tx.execute("DELETE FROM transactions WHERE expense_id=?1", [id])?;
             tx.execute("DELETE FROM expenses WHERE id=?1", [id])?;
             if let Some(ref receipt_id) = e.receipt_id {
                 let receipt = receipt_repository::get(&tx, receipt_id)?;
@@ -163,6 +165,7 @@ impl AppService {
                 serde_json::json!({"receiptId":e.receipt_id,"claimId":e.claim_id}),
             )?;
         }
+        super::finance::validate_balances(&tx)?;
         tx.commit()?;
         drop(db);
         // Files go only after the database no longer refers to them. Anything

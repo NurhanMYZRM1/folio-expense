@@ -1,3 +1,4 @@
+mod business_dispatch;
 #[cfg(feature = "desktop")]
 mod commands;
 pub mod db;
@@ -7,6 +8,8 @@ pub mod error;
 #[cfg(feature = "mobile")]
 pub mod ffi;
 pub mod jobs;
+#[cfg(all(feature = "mobile", target_os = "android"))]
+mod mobile_jni;
 pub mod repository;
 pub mod security;
 pub mod services;

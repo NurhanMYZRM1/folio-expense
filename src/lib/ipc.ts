@@ -1,5 +1,24 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import type {
+  ReceiptItemsReview,
+  ReceiptItemsInput,
+  TaxRules,
+  IncomeTaxInput,
+  IncomeTaxEstimate,
+  SstInput,
+  SstCalculation,
+  EinvoiceValidation,
+  BusinessProfile,
+  CustomerInput,
+  Customer,
+  InventoryItemInput,
+  InventoryItem,
+  StockAdjustmentInput,
+  StockMovement,
+  InvoiceInput,
+  Invoice,
+  InvoicePaymentInput,
+  BusinessReport,
   Account,
   AccountInput,
   AppInfo,
@@ -100,6 +119,43 @@ export const api = {
   exportClaimXlsx: (id: string) => call<CsvExport>('export_claim_xlsx', { id }),
   exportExpensesXlsx: (ids: string[]) => call<CsvExport>('export_expenses_xlsx', { ids }),
   openXlsxExport: (id: string) => call<void>('open_xlsx_export', { id }),
+  saveInvoicePdf: (workspaceId: string, invoiceId: string, version: number, base64: string) =>
+    call<CsvExport>('save_invoice_pdf', { workspaceId, invoiceId, version, base64 }),
+  openInvoicePdf: (id: string) => call<void>('open_invoice_pdf', { id }),
+  receiptItems: (expenseId: string) => call<ReceiptItemsReview>('get_receipt_items', { expenseId }),
+  saveReceiptItems: (input: ReceiptItemsInput) =>
+    call<ReceiptItemsReview>('save_receipt_items', { input }),
+  businessProfile: (workspaceId: string) =>
+    call<BusinessProfile | null>('get_business_profile', { workspaceId }),
+  saveBusinessProfile: (input: BusinessProfile) =>
+    call<BusinessProfile>('save_business_profile', { input }),
+  customers: (workspaceId: string, includeArchived = false) =>
+    call<Customer[]>('list_customers', { workspaceId, includeArchived }),
+  saveCustomer: (input: CustomerInput) => call<Customer>('save_customer', { input }),
+  inventoryItems: (workspaceId: string, includeArchived = false) =>
+    call<InventoryItem[]>('list_inventory_items', { workspaceId, includeArchived }),
+  saveInventoryItem: (input: InventoryItemInput) =>
+    call<InventoryItem>('save_inventory_item', { input }),
+  adjustStock: (input: StockAdjustmentInput) => call<InventoryItem>('adjust_stock', { input }),
+  stockMovements: (workspaceId: string, itemId: string) =>
+    call<StockMovement[]>('list_stock_movements', { workspaceId, itemId }),
+  invoices: (workspaceId: string) => call<Invoice[]>('list_invoices', { workspaceId }),
+  invoice: (workspaceId: string, id: string) => call<Invoice>('get_invoice', { workspaceId, id }),
+  saveInvoice: (input: InvoiceInput) => call<Invoice>('save_invoice', { input }),
+  issueInvoice: (workspaceId: string, id: string, version: number) =>
+    call<Invoice>('issue_invoice', { workspaceId, id, version }),
+  voidInvoice: (workspaceId: string, id: string, version: number) =>
+    call<Invoice>('void_invoice', { workspaceId, id, version }),
+  recordInvoicePayment: (input: InvoicePaymentInput) =>
+    call<Invoice>('record_invoice_payment', { input }),
+  taxRules: (assessmentYear: number) => call<TaxRules>('get_tax_rules', { assessmentYear }),
+  estimateIncomeTax: (input: IncomeTaxInput) =>
+    call<IncomeTaxEstimate>('estimate_income_tax', { input }),
+  calculateSst: (input: SstInput) => call<SstCalculation>('calculate_sst', { input }),
+  validateEinvoice: (workspaceId: string, invoiceId: string) =>
+    call<EinvoiceValidation>('validate_einvoice', { workspaceId, invoiceId }),
+  businessReport: (workspaceId: string, today: string) =>
+    call<BusinessReport>('report_business', { workspaceId, today }),
   // Finance ledger (docs/DECISIONS.md). `today` is the device's local date
   // (YYYY-MM-DD); periods are YYYY-MM.
   workspaces: () => call<Workspace[]>('list_workspaces'),

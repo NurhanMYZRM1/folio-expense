@@ -7,6 +7,7 @@ pub trait SecretStore: Send + Sync {
 }
 pub struct OsSecretStore;
 impl OsSecretStore {
+    #[cfg(not(target_os = "android"))]
     fn entry() -> Result<keyring::Entry> {
         keyring::Entry::new("com.folio.expenses", "vision-api-key").map_err(|_| {
             AppError::new(
@@ -18,12 +19,21 @@ impl OsSecretStore {
 }
 impl SecretStore for OsSecretStore {
     fn get(&self) -> Result<Option<Zeroizing<String>>> {
+        #[cfg(target_os = "android")]
+        return crate::mobile_jni::get_secret();
+        #[cfg(not(target_os = "android"))]
         Self::entry()?.get()
     }
     fn set(&self, value: &str) -> Result<()> {
+        #[cfg(target_os = "android")]
+        return crate::mobile_jni::set_secret(value);
+        #[cfg(not(target_os = "android"))]
         Self::entry()?.set(value)
     }
     fn delete(&self) -> Result<()> {
+        #[cfg(target_os = "android")]
+        return crate::mobile_jni::delete_secret();
+        #[cfg(not(target_os = "android"))]
         Self::entry()?.delete()
     }
 }

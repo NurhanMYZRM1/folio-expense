@@ -35,7 +35,7 @@ export type Extraction = { merchantName: string | null, date: string | null, tot
 /**
  * Where the purchase was made: the address printed on the receipt.
  */
-premises: string | null, confidence: { [key in string]?: number }, };
+premises: string | null, lineItems: Array<ReceiptItem>, lineItemAdjustments: ReceiptItemAdjustments | null, confidence: { [key in string]?: number }, };
 export type Job = { id: string, jobType: string, entityId: string, status: string, attempts: number, lastError: string | null, createdAt: string, updatedAt: string, };
 export type JobLease = { job: Job, token: string, receiptId: string | null, };
 export type ClaimStatus = "draft" | "submitted" | "archived";
@@ -291,3 +291,111 @@ export type QuickAddDraft = { text: string, kind: TransactionKind, amountMinor: 
  * `account`, `kind`, `payee`); the review form highlights them.
  */
 uncertain: Array<string>, };
+export type BusinessProfile = { workspaceId: string, legalName: string, registrationNumber: string, tin: string, sstRegistrationNumber: string, address: string, email: string, phone: string, invoicePrefix: string, version: number, };
+export type CustomerInput = { id: string | null, version: number | null, workspaceId: string, name: string, registrationNumber: string, tin: string, address: string, email: string, phone: string, archived: boolean, };
+export type Customer = { id: string, workspaceId: string, name: string, registrationNumber: string, tin: string, address: string, email: string, phone: string, archived: boolean, version: number, };
+export type InventoryItemInput = { id: string | null, version: number | null, workspaceId: string, sku: string, name: string, unit: string, currency: string, unitPriceMinor: number, archived: boolean, };
+export type InventoryItem = { id: string, workspaceId: string, sku: string, name: string, unit: string, currency: string, unitPriceMinor: number, stockMilli: number, archived: boolean, version: number, };
+export type StockAdjustmentInput = { 
+/**
+ * A UUID created once per user action; reuse it on retries.
+ */
+requestId: string, workspaceId: string, itemId: string, quantityMilli: number, occurredOn: string, reason: string, };
+export type StockMovement = { id: string, workspaceId: string, itemId: string, quantityMilli: number, occurredOn: string, reason: string, invoiceId: string | null, createdAt: string, };
+export type InvoiceLineInput = { inventoryItemId: string | null, description: string, 
+/**
+ * 1000 means one unit; multiply price then round half-up per line.
+ */
+quantityMilli: number, unitPriceMinor: number, discountMinor: number, 
+/**
+ * User-selected tax rate, never inferred from the description.
+ */
+taxBasisPoints: number, 
+/**
+ * MyInvois classification code; local preparation only.
+ */
+classificationCode: string, };
+export type InvoiceLine = { subtotalMinor: number, taxMinor: number, totalMinor: number, inventoryItemId: string | null, description: string, 
+/**
+ * 1000 means one unit; multiply price then round half-up per line.
+ */
+quantityMilli: number, unitPriceMinor: number, discountMinor: number, 
+/**
+ * User-selected tax rate, never inferred from the description.
+ */
+taxBasisPoints: number, 
+/**
+ * MyInvois classification code; local preparation only.
+ */
+classificationCode: string, };
+export type InvoiceStatus = "draft" | "issued" | "paid" | "void";
+export type InvoiceInput = { id: string | null, version: number | null, workspaceId: string, customerId: string, currency: string, issuedOn: string, dueOn: string, note: string, lines: Array<InvoiceLineInput>, };
+export type Invoice = { id: string, workspaceId: string, 
+/**
+ * Assigned atomically on issue; never reused after voiding.
+ */
+number: string | null, customerId: string, currency: string, issuedOn: string, dueOn: string, note: string, lines: Array<InvoiceLine>, subtotalMinor: number, taxMinor: number, totalMinor: number, paidMinor: number, status: InvoiceStatus, supplier: BusinessProfile | null, customer: Customer, version: number, createdAt: string, updatedAt: string, payments: Array<InvoicePayment>, };
+export type InvoicePaymentInput = { requestId: string, workspaceId: string, invoiceId: string, accountId: string, amountMinor: number, paidOn: string, note: string, };
+export type InvoicePayment = { id: string, accountId: string, transactionId: string, amountMinor: number, paidOn: string, note: string, };
+export type BusinessCurrencyTotal = { currency: string, invoicedMinor: number, paidMinor: number, outstandingMinor: number, overdueMinor: number, };
+export type BusinessReport = { workspaceId: string, asOf: string, byCurrency: Array<BusinessCurrencyTotal>, draftCount: number, issuedCount: number, };
+export type ReceiptItem = { description: string, quantityMilli: number | null, unitPriceMinor: number | null, 
+/**
+ * Printed net line amount. Quantity/price are optional evidence only.
+ */
+amountMinor: number, confidence: number, };
+export type ReceiptItemAdjustments = { 
+/**
+ * True when line amounts already contain the receipt's stated tax.
+ */
+taxIncluded: boolean, taxMinor: number, 
+/**
+ * Receipt-level discount only; line-level discounts are already in amount.
+ */
+discountMinor: number, serviceChargeMinor: number, roundingMinor: number, };
+export type ReceiptItemsReconciliation = { itemsSubtotalMinor: number, calculatedTotalMinor: number, receiptTotalMinor: number | null, 
+/**
+ * Calculated total minus original receipt total; null if unknown.
+ */
+differenceMinor: number | null, balanced: boolean, warnings: Array<string>, };
+export type ReceiptItemsReview = { expenseId: string, version: number, 
+/**
+ * The current expense version; pass back when saving to detect edits.
+ */
+expenseVersion: number, currency: string, items: Array<ReceiptItem>, adjustments: ReceiptItemAdjustments, reviewed: boolean, source: FieldSource, updatedAt: string, reconciliation: ReceiptItemsReconciliation, };
+export type ReceiptItemsInput = { expenseId: string, 
+/**
+ * 0 creates a review when no extracted draft exists.
+ */
+version: number, expenseVersion: number, currency: string, items: Array<ReceiptItem>, adjustments: ReceiptItemAdjustments, reviewed: boolean, };
+export type TaxReliefRule = { code: string, label: string, capMinor: number, eligibility: string, sourceUrl: string, };
+export type TaxBand = { upperMinor: number | null, rateBasisPoints: number, };
+export type TaxRules = { assessmentYear: number, currency: string, bands: Array<TaxBand>, reliefs: Array<TaxReliefRule>, sources: Array<string>, supportedScope: string, };
+export type MaritalStatus = "single" | "married_separate" | "married_spouse_no_income";
+export type TaxReliefClaim = { code: string, amountMinor: number, 
+/**
+ * Eligibility is checked by the user against the linked source.
+ */
+eligibilityConfirmed: boolean, };
+export type IncomeTaxInput = { assessmentYear: number, resident: boolean, maritalStatus: MaritalStatus, 
+/**
+ * Total income after permitted deductions, before personal reliefs.
+ * This is not gross revenue or gross salary.
+ */
+totalIncomeMinor: number, reliefs: Array<TaxReliefClaim>, zakatMinor: number, 
+/**
+ * PCB/MTD already withheld for this assessment year, not payroll forecast.
+ */
+pcbPaidMinor: number, };
+export type IncomeTaxEstimate = { assessmentYear: number, currency: string, reliefMinor: number, chargeableIncomeMinor: number, taxBeforeRebatesMinor: number, rebateMinor: number, taxPayableMinor: number, 
+/**
+ * Negative means estimated overpayment; no refund is requested.
+ */
+balanceAfterPcbMinor: number, warnings: Array<string>, sources: Array<string>, };
+export type SstInput = { amountMinor: number, 
+/**
+ * Confirmed rate chosen by the user; no automatic tax classification.
+ */
+rateBasisPoints: number, taxInclusive: boolean, };
+export type SstCalculation = { netMinor: number, taxMinor: number, totalMinor: number, rateBasisPoints: number, notice: string, sourceUrl: string, };
+export type EinvoiceValidation = { invoiceId: string, preparationStatus: string, errors: Array<string>, warnings: Array<string>, sourceUrl: string, };

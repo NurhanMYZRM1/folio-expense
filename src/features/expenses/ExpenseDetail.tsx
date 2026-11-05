@@ -1,3 +1,6 @@
+import { ReceiptItems } from './ReceiptItems';
+import { useFinance } from '../finance/shared';
+import { RecordReceipt } from '../finance/RecordReceipt';
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
@@ -21,6 +24,7 @@ import { Modal } from '../../components/motion';
 function Editor({ initial, reload }: { initial: Expense; reload: () => Promise<void> }) {
   const { notify, refresh, expenses, settings } = useWorkspace();
   const navigate = useNavigate();
+  const { refreshFinance } = useFinance();
   // The form edits the amounts printed on the receipt. For a converted
   // foreign receipt those are the original_* values; the claimed amount in
   // the home currency is always worked out from them.
@@ -85,6 +89,7 @@ function Editor({ initial, reload }: { initial: Expense; reload: () => Promise<v
       await api.editExpense(edit);
       setDirty(false);
       await refresh();
+      await refreshFinance();
       await reload();
       const blank = [
         !form.merchant.trim() && 'merchant',
@@ -120,6 +125,7 @@ function Editor({ initial, reload }: { initial: Expense; reload: () => Promise<v
     setBusy(true);
     try {
       await api.deleteExpenses([initial.id]);
+      await refreshFinance();
       setDirty(false);
       await refresh();
       notify('Expense and receipt deleted.');
@@ -336,6 +342,8 @@ function Editor({ initial, reload }: { initial: Expense; reload: () => Promise<v
               <span>Low-confidence fields are highlighted for review.</span>
             </div>
           )}
+          <ReceiptItems expenseId={initial.id} expenseVersion={initial.version} locked={locked} />
+          <RecordReceipt expense={initial} disabled={busy || dirty || !!stale} />
           {!locked && (
             <div className="delete-row">
               <button

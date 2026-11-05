@@ -4,6 +4,7 @@ use crate::{
 };
 use std::sync::Arc;
 use tauri::{Runtime, State};
+mod business;
 mod claims;
 mod expenses;
 mod exports;
@@ -60,6 +61,7 @@ macro_rules! handler_with_core_commands {
 }
 handler_with_core_commands!(
     [
+        business::open_invoice_pdf,
         expenses::list_expenses,
         expenses::get_expense,
         expenses::create_expense,
@@ -135,5 +137,28 @@ handler_with_core_commands!(
         list_suggestions,
         accept_suggestion,
         dismiss_suggestion,
+        get_receipt_items,
+        save_receipt_items,
+        save_invoice_pdf,
+        ingest_payment_notification,
+        get_business_profile,
+        save_business_profile,
+        list_customers,
+        save_customer,
+        list_inventory_items,
+        save_inventory_item,
+        adjust_stock,
+        list_stock_movements,
+        list_invoices,
+        get_invoice,
+        save_invoice,
+        issue_invoice,
+        void_invoice,
+        record_invoice_payment,
+        report_business,
+        get_tax_rules,
+        estimate_income_tax,
+        calculate_sst,
+        validate_einvoice,
     ]
 );

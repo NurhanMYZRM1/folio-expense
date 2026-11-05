@@ -1,3 +1,4 @@
+import { PaymentDetection } from '../finance/PaymentDetection';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { ShieldCheck, Monitor, KeyRound, FolderOpen, Save, LockKeyhole, Info } from 'lucide-react';
@@ -260,6 +261,23 @@ export function Settings() {
                 returned to the interface or stored in SQLite. Save the provider URL before adding a
                 credential.
               </p>
+            </div>
+          </Panel>
+          <PaymentDetection onSaved={(enabled) => update('paymentAlertsEnabled', enabled)} />
+          <Panel title="Finance notifications">
+            <div className="settings-fields">
+              <Toggle
+                label="Bill reminders"
+                detail="Schedule local bill and subscription reminders on supported mobile builds. Notification permission is requested from Bills when you enable reminders."
+                checked={form.notifyBills}
+                onChange={(v) => update('notifyBills', v)}
+              />
+              <Toggle
+                label="Budget alerts"
+                detail="Notify once per monthly budget threshold on supported mobile builds."
+                checked={form.notifyBudgets}
+                onChange={(v) => update('notifyBudgets', v)}
+              />
             </div>
           </Panel>
           <Panel title="Claim exports" action={<FolderOpen size={17} />}>
