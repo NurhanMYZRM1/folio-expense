@@ -264,7 +264,7 @@ function Shell() {
             <ShieldCheck size={12} />
             Private by default. Productive anywhere.
           </span>
-          <span>Folio · Local-first expense management</span>
+          <span>Folio · Expense workspace</span>
         </footer>
       </div>
       <nav className="mobile-nav" aria-label="Primary">

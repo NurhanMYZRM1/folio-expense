@@ -81,9 +81,11 @@ export function Providers({ children }: { children: ReactNode }) {
       setSettings(s);
       setError(null);
     } catch (e) {
-      setError(errorMessage(e));
+      if (number === request.current) setError(errorMessage(e));
     } finally {
-      setLoading(false);
+      // An older refresh must not mount forms with defaults while the current
+      // request is still loading their saved values.
+      if (number === request.current) setLoading(false);
     }
   }, []);
   useEffect(() => {

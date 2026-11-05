@@ -4,6 +4,25 @@ Resume here. Read [DECISIONS.md](DECISIONS.md) (binding architecture) and
 [belanje-parity.md](belanje-parity.md) (scope and per-feature status) first.
 Branch: `feat/finance-parity` (local only, not pushed).
 
+## Latest UI follow-up (2026-11-05)
+
+- Removed the dashboard's local-first banner and the footer's local-first text.
+- Fixed opening-balance typing moving focus back to the account name: the
+  shared modal now initializes its focus trap only when opened, while keeping
+  its current close callback. Account/workspace dialogs use the modal's focus
+  marker rather than competing React autofocus.
+- Save preferences is now in a sticky toolbar above the Settings form, with
+  unsaved/saved status. Saving keeps the user's current scroll position.
+- A delayed-load regression also exposed stale startup refreshes clearing the
+  loading state too early. Only the current request may finish loading or set
+  its error, so Settings initializes from saved values rather than defaults.
+- Regression checks cover paced typing for new/edited signed opening balances,
+  persistence, Escape/focus restoration, delayed Settings loads, and saving
+  from top/middle/bottom at desktop and phone widths.
+- Checks: `npm run check` passed (40 tests; 0 lint errors, 7 existing warnings),
+  `npm run format:check` passed, all 14 browser journeys passed, and mobile
+  typecheck/lint passed (0 errors, 2 existing warnings). No Rust changes.
+
 ## Session history
 
 | Session        | Agent                          | Outcome                                                                                                                                                                                                                        |

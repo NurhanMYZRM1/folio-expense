@@ -64,11 +64,6 @@ export function Settings() {
       setForm(value);
       setInfo(await api.info());
       notify('Preferences saved locally.');
-      // The Save button sits at the bottom of a long page; bring the page back to its top.
-      window.scrollTo({
-        top: 0,
-        behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
-      });
     } catch (e) {
       notify(errorMessage(e), true);
     } finally {
@@ -104,6 +99,17 @@ export function Settings() {
         subtitle="Make this workspace yours. You’re in control of where your data goes."
       />
       <form onSubmit={save} className="settings-layout">
+        <div className="settings-save" role="region" aria-label="Preferences actions">
+          <span>
+            {JSON.stringify(form) !== JSON.stringify(settings)
+              ? 'You have unsaved changes.'
+              : 'Preferences are up to date.'}
+          </span>
+          <button className="button primary" disabled={busy} type="submit">
+            <Save size={15} />
+            {busy ? 'Saving…' : 'Save preferences'}
+          </button>
+        </div>
         <div>
           <Panel title="General" action={<Monitor size={17} />}>
             <div className="settings-fields">
@@ -320,13 +326,6 @@ export function Settings() {
               </p>
             </div>
           </Panel>
-          <div className="settings-save">
-            <span>Preferences are saved on this device.</span>
-            <button className="button primary" disabled={busy} type="submit">
-              <Save size={15} />
-              {busy ? 'Saving…' : 'Save preferences'}
-            </button>
-          </div>
         </div>
         <aside>
           <div className="privacy-summary">

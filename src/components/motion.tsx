@@ -8,7 +8,7 @@ import {
   type Transition,
   type Variants,
 } from 'motion/react';
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
 /**
@@ -166,6 +166,12 @@ export function Modal({
   children: ReactNode;
 }) {
   const panel = useRef<HTMLDivElement>(null);
+  // Dialog callers can replace this callback on every keystroke. Keep the
+  // current handler without tearing down the focus trap or moving focus.
+  const close = useRef(onClose);
+  useLayoutEffect(() => {
+    close.current = onClose;
+  }, [onClose]);
   useEffect(() => {
     if (!open) return;
     const previous = document.activeElement as HTMLElement | null;
@@ -180,7 +186,7 @@ export function Modal({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.stopPropagation();
-        onClose();
+        close.current();
       }
       if (e.key === 'Tab' && panel.current) {
         const items = [
@@ -208,7 +214,7 @@ export function Modal({
       shell?.removeAttribute('aria-hidden');
       previous?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
   return createPortal(
     <AnimatePresence>
       {open && (

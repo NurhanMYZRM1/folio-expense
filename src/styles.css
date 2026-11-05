@@ -744,11 +744,6 @@ h1 {
   padding: 12px 16px;
   color: var(--warning);
 }
-.review-strip.calm {
-  background: var(--accent-bg);
-  border-color: color-mix(in srgb, var(--accent) 18%, var(--border));
-  color: var(--accent);
-}
 .review-strip-icon {
   width: 32px;
   height: 32px;
@@ -772,16 +767,6 @@ h1 {
   align-items: center;
   gap: 8px;
   margin-left: auto;
-  white-space: nowrap;
-}
-.local-pill {
-  font-size: 11px;
-  letter-spacing: 1px;
-  border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent);
-  padding: 4px 8px;
-  border-radius: var(--r-xs);
-  margin-left: auto;
-  font-weight: 600;
   white-space: nowrap;
 }
 .analytics-grid {
@@ -2023,12 +2008,25 @@ h1 {
   font-size: 12px;
 }
 .settings-save {
+  grid-column: 1 / -1;
+  position: sticky;
+  top: 76px;
+  z-index: 14;
+  align-self: start;
   display: flex;
   align-items: center;
   justify-content: space-between;
   font-size: 12px;
   color: var(--muted);
-  padding: 8px 0;
+  gap: 16px;
+  padding: 14px 20px;
+  background: var(--surface);
+  border: 1px solid var(--card-border);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-sm);
+}
+.mobile-page .settings-save {
+  top: 12px;
 }
 .privacy-summary {
   border: 1px solid var(--card-border);
@@ -2896,8 +2894,7 @@ body {
   .review-strip {
     flex-wrap: wrap;
   }
-  .review-link,
-  .local-pill {
+  .review-link {
     margin-left: 44px;
   }
   .claim-grid {

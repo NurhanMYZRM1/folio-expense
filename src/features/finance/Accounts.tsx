@@ -69,7 +69,7 @@ function AccountEditor({ account, close }: { account?: Account; close: () => voi
     >
       <Field label="Account name">
         <input
-          autoFocus
+          data-autofocus
           required
           maxLength={120}
           value={form.name}
@@ -206,7 +206,7 @@ function WorkspaceEditor({ workspace, close }: { workspace?: Workspace; close: (
       <Field label="Workspace name">
         <input
           required
-          autoFocus
+          data-autofocus
           maxLength={120}
           value={name}
           onChange={(e) => setName(e.target.value)}
