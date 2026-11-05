@@ -120,29 +120,66 @@ not built yet.
 
 ## D7. Sync (Designed, phase 5)
 
-- Local SQLite stays authoritative for the device; a mutation never waits on
-  or rolls back because of the network.
-- Change capture: SQLite triggers append to `sync_outbox` (change UUID,
-  entity, row id, upsert/delete, base version) only when sync is enabled, so
-  service code paths do not change.
-- Push is idempotent by change UUID. A change whose base version is behind
-  the server's wins nothing silently: the server copy is kept and the local
-  edit is stored in `sync_conflicts` for the user to resolve. Deletes become
-  server tombstones; an upsert for a tombstoned id is rejected, so stale
-  clients cannot resurrect deleted records.
-- Pull uses a per-workspace monotonically increasing server sequence.
-- Receipt files upload to a private bucket at `<workspace>/<receipt id>`,
-  readable only through membership policies.
-- Per-row states shown to the user: local only, pending, synced, failed/conflict.
+Shape: **the server stores versioned records; the Rust core stays the rule
+engine.**
+
+- Server table `records(workspace_id, entity, id, version, data, deleted_at,
+server_seq, updated_by, updated_at)`, keyed by (entity, id). Each syncable
+  local row is one record and `data` is that row as JSON. Business rules and
+  relational checks run in the Rust core on every device (one implementation
+  for desktop and mobile). The server enforces who may read and write each
+  workspace, versions, idempotency and tombstones, so there is no per-table
+  server schema to keep in step with local migrations.
+- Writes go only through `sync_push(changes)`, a security-definer function
+  with explicit membership and role checks; there are no direct insert or
+  update policies. A change carries a `change_id` UUID, entity, id, workspace,
+  op (upsert/delete), base version and data. Results: applied (new version
+  and sequence), conflict (server copy returned) or rejected (tombstoned or
+  forbidden). Applied change ids are kept, so a retried push returns the same
+  results and never applies twice.
+- Conflicts are version-based, never silent last-writer-wins. The server copy
+  stays canonical; the client keeps its losing edit in `sync_conflicts` and
+  offers "keep mine" (re-push on top of the server version) or "keep theirs".
+  A delete wins over a concurrent edit and leaves a permanent tombstone; an
+  upsert of a tombstoned id is rejected, so stale clients cannot resurrect it.
+- Pull: `sync_pull(workspace, since, limit)` returns records and tombstones in
+  sequence order. The client keeps a cursor per workspace and applies each
+  page in one SQLite transaction with deferred foreign keys. Rows with a
+  pending local change are not overwritten (their push conflicts instead).
+  Incoming data passes the same Rust validation; invalid records are
+  quarantined, not applied.
+- Change capture: with sync enabled, SQLite triggers on each syncable table
+  upsert one `sync_outbox` row per (entity, id), keeping the oldest base
+  version, so several edits before a push become one change. Rows written by
+  pull are marked `synced` and skipped by the triggers. Service code is
+  unchanged, and a mutation never waits on the network.
+- Never synced (device-local): jobs, extraction runs, budget alerts,
+  transaction suggestions, the exchange-rate cache, audit events,
+  device-specific settings (theme, export folder, AI endpoint) and
+  credentials.
+- Receipts, expenses and claims sync into the user's personal workspace.
+  Receipt files upload to the private bucket at `<workspace>/<receipt id>/<file
+name>` before their row is pushed; other devices download on first view.
+  Storage policies use the same membership check as records.
+- Per-row state shown to users: local only (sync off), pending (in the
+  outbox), synced, conflict, failed (last error; retried with backoff from
+  1 s to 5 min).
+- Connecting a device previews counts per record type and uploads only after
+  confirmation. Signing in on a second device that already has local data
+  asks whether to merge it into the account or keep it local-only.
 
 ## D8. Backend (Designed, phase 5)
 
-Supabase: Postgres with row-level security, Auth with Apple/Google/email,
-private Storage, and Edge Functions, with a Docker-based local stack
-(`supabase start`). Chosen for relational integrity of financial data,
-server-enforced authorization without a bespoke auth server, and an
-open-source, self-hostable stack. Creating the hosted project, provider
-credentials and keys is an owner action.
+Supabase: Postgres (transactional pushes, row-level security), Auth
+(email one-time codes, Apple, Google), private Storage, and Edge Functions
+for work that needs the service role (account deletion, store webhooks).
+Local development uses the Docker-based stack (`supabase start`). Chosen for
+server-enforced authorization without a bespoke auth server and an
+open-source, self-hostable stack. Desktop sign-in uses an emailed one-time
+code (no redirect needed) or OAuth with PKCE through the system browser and
+the `expenseapp://` deep link; phones use native Apple/Google sign-in and
+exchange the ID token. Creating the hosted project, provider credentials and
+keys is an owner action.
 
 ## D9. Encryption (Designed, phase 5)
 
