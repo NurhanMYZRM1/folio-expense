@@ -202,7 +202,7 @@ impl AppService {
     pub fn convert_pending(&self) -> Result<u32> {
         let settings = self.settings()?;
         if !settings.currency_conversion_enabled {
-            return Ok(0);
+            return self.convert_pending_ledger();
         }
         let waiting: Vec<Expense> = expenses::all(&*self.conn()?)?
             .into_iter()
@@ -248,6 +248,7 @@ impl AppService {
                 continue;
             }
             e.updated_at = now();
+            super::finance::sync_receipt_in(&tx, &e)?;
             expenses::save(&tx, &e)?;
             if let Some(ref claim_id) = e.claim_id {
                 tx.execute(
@@ -264,7 +265,7 @@ impl AppService {
             tx.commit()?;
             converted += 1;
         }
-        Ok(converted)
+        Ok(converted + self.convert_pending_ledger()?)
     }
 }
 

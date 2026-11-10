@@ -11,6 +11,7 @@ export default tseslint.config(
   {
     ignores: [
       'dist',
+      '.claude',
       'public',
       'src-tauri',
       'src/bindings/generated',

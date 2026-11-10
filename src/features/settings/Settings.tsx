@@ -1,3 +1,5 @@
+import { PaymentDetection } from '../finance/PaymentDetection';
+import { DataExport } from './DataExport';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { ShieldCheck, Monitor, KeyRound, FolderOpen, Save, LockKeyhole, Info } from 'lucide-react';
@@ -62,11 +64,6 @@ export function Settings() {
       setForm(value);
       setInfo(await api.info());
       notify('Preferences saved locally.');
-      // The Save button sits at the bottom of a long page; bring the page back to its top.
-      window.scrollTo({
-        top: 0,
-        behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
-      });
     } catch (e) {
       notify(errorMessage(e), true);
     } finally {
@@ -102,6 +99,17 @@ export function Settings() {
         subtitle="Make this workspace yours. You’re in control of where your data goes."
       />
       <form onSubmit={save} className="settings-layout">
+        <div className="settings-save" role="region" aria-label="Preferences actions">
+          <span>
+            {JSON.stringify(form) !== JSON.stringify(settings)
+              ? 'You have unsaved changes.'
+              : 'Preferences are up to date.'}
+          </span>
+          <button className="button primary" disabled={busy} type="submit">
+            <Save size={15} />
+            {busy ? 'Saving…' : 'Save preferences'}
+          </button>
+        </div>
         <div>
           <Panel title="General" action={<Monitor size={17} />}>
             <div className="settings-fields">
@@ -262,6 +270,24 @@ export function Settings() {
               </p>
             </div>
           </Panel>
+          <PaymentDetection onSaved={(enabled) => update('paymentAlertsEnabled', enabled)} />
+          <DataExport />
+          <Panel title="Finance notifications">
+            <div className="settings-fields">
+              <Toggle
+                label="Bill reminders"
+                detail="Schedule local bill and subscription reminders on supported mobile builds. Notification permission is requested from Bills when you enable reminders."
+                checked={form.notifyBills}
+                onChange={(v) => update('notifyBills', v)}
+              />
+              <Toggle
+                label="Budget alerts"
+                detail="Notify once per monthly budget threshold on supported mobile builds."
+                checked={form.notifyBudgets}
+                onChange={(v) => update('notifyBudgets', v)}
+              />
+            </div>
+          </Panel>
           <Panel title="Claim exports" action={<FolderOpen size={17} />}>
             <div className="settings-fields">
               <Toggle
@@ -300,13 +326,6 @@ export function Settings() {
               </p>
             </div>
           </Panel>
-          <div className="settings-save">
-            <span>Preferences are saved on this device.</span>
-            <button className="button primary" disabled={busy} type="submit">
-              <Save size={15} />
-              {busy ? 'Saving…' : 'Save preferences'}
-            </button>
-          </div>
         </div>
         <aside>
           <div className="privacy-summary">

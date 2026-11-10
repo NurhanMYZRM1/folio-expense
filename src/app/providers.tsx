@@ -1,3 +1,4 @@
+import { FinanceProvider } from '../features/finance/shared';
 import {
   createContext,
   useCallback,
@@ -27,6 +28,9 @@ export const defaultSettings: Settings = {
   company: '',
   employee: '',
   currencyConversionEnabled: true,
+  notifyBills: true,
+  notifyBudgets: true,
+  paymentAlertsEnabled: false,
 };
 type Notice = { id: number; text: string; error: boolean };
 type Store = {
@@ -77,9 +81,11 @@ export function Providers({ children }: { children: ReactNode }) {
       setSettings(s);
       setError(null);
     } catch (e) {
-      setError(errorMessage(e));
+      if (number === request.current) setError(errorMessage(e));
     } finally {
-      setLoading(false);
+      // An older refresh must not mount forms with defaults while the current
+      // request is still loading their saved values.
+      if (number === request.current) setLoading(false);
     }
   }, []);
   useEffect(() => {
@@ -111,7 +117,7 @@ export function Providers({ children }: { children: ReactNode }) {
         processing,
       }}
     >
-      {children}
+      <FinanceProvider>{children}</FinanceProvider>
       <div className="toasts" aria-live="polite">
         <AnimatePresence initial={false} mode="popLayout">
           {notices.map((n) => (

@@ -4,6 +4,7 @@ use crate::{
 };
 use std::sync::Arc;
 use tauri::{Runtime, State};
+mod business;
 mod claims;
 mod expenses;
 mod exports;
@@ -25,8 +26,43 @@ pub(super) async fn blocking<T: Send + 'static>(
             )
         })?
 }
-pub fn handler<R: Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {
-    tauri::generate_handler![
+/// The raw JSON arguments of a core command, forwarded unchanged to
+/// `dispatch` on the blocking pool (D5 in docs/DECISIONS.md).
+async fn forward(
+    s: Service<'_>,
+    command: &'static str,
+    request: tauri::ipc::Request<'_>,
+) -> Result<serde_json::Value> {
+    let args = match request.body() {
+        tauri::ipc::InvokeBody::Json(v) => v.clone(),
+        tauri::ipc::InvokeBody::Raw(_) => serde_json::Value::Null,
+    };
+    blocking(s, move |s| crate::dispatch::dispatch(&s, command, args)).await
+}
+/// Builds the handler from the hand-written commands plus one generated Tauri
+/// command per core command name. A new core operation needs its `dispatch.rs`
+/// entry and its name in the second list; nothing else.
+macro_rules! handler_with_core_commands {
+    ([$($legacy:path),* $(,)?], [$($core:ident),* $(,)?]) => {
+        $(
+            #[tauri::command]
+            async fn $core(
+                s: Service<'_>,
+                request: tauri::ipc::Request<'_>,
+            ) -> Result<serde_json::Value> {
+                forward(s, stringify!($core), request).await
+            }
+        )*
+        pub fn handler<R: Runtime>(
+        ) -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {
+            tauri::generate_handler![$($legacy,)* $($core),*]
+        }
+    };
+}
+handler_with_core_commands!(
+    [
+        exports::open_data_export,
+        business::open_invoice_pdf,
         expenses::list_expenses,
         expenses::get_expense,
         expenses::create_expense,
@@ -68,5 +104,65 @@ pub fn handler<R: Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + 
         jobs::complete_thumbnail,
         jobs::export_snapshot,
         jobs::complete_pdf
+    ],
+    [
+        // Ledger (services::finance)
+        list_workspaces,
+        save_workspace,
+        list_categories,
+        save_category,
+        delete_category,
+        list_accounts,
+        save_account,
+        delete_account,
+        list_transactions,
+        get_transaction,
+        save_transaction,
+        delete_transactions,
+        record_expense,
+        list_budgets,
+        save_budget,
+        delete_budget,
+        list_bills,
+        get_bill,
+        save_bill,
+        delete_bill,
+        list_bill_occurrences,
+        pay_bill,
+        report_monthly,
+        report_overview,
+        export_transactions_csv,
+        export_all_data,
+        list_reminders,
+        ack_reminder,
+        parse_quick_add,
+        list_suggestions,
+        accept_suggestion,
+        dismiss_suggestion,
+        get_receipt_items,
+        save_receipt_items,
+        save_invoice_pdf,
+        ingest_payment_notification,
+        get_business_profile,
+        save_business_profile,
+        list_customers,
+        save_customer,
+        list_inventory_items,
+        save_inventory_item,
+        delete_customer,
+        delete_inventory_item,
+        adjust_stock,
+        list_stock_movements,
+        list_invoices,
+        get_invoice,
+        save_invoice,
+        issue_invoice,
+        void_invoice,
+        record_invoice_payment,
+        report_business,
+        get_tax_rules,
+        estimate_income_tax,
+        calculate_sst,
+        validate_einvoice,
     ]
-}
+);

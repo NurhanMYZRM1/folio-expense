@@ -28,6 +28,10 @@ pub struct Extraction {
     /// Where the purchase was made: the address printed on the receipt.
     #[serde(default)]
     pub premises: Option<String>,
+    #[serde(default)]
+    pub line_items: Vec<super::receipt_items::ReceiptItem>,
+    #[serde(default)]
+    pub line_item_adjustments: Option<super::receipt_items::ReceiptItemAdjustments>,
     pub confidence: BTreeMap<String, f64>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

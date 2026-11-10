@@ -7,10 +7,23 @@ import Vision
 /// desktop does in the webview with tesseract.js and pdf.js: reading receipt
 /// text (Apple Vision) and rendering PDF pages (PDFKit).
 public class FolioCoreModule: Module {
+  private let speech = FolioSpeech()
   private let queue = DispatchQueue(label: "folio.core", qos: .userInitiated, attributes: .concurrent)
 
   public func definition() -> ModuleDefinition {
     Name("FolioCore")
+
+    AsyncFunction("transcribeVoice") { (promise: Promise) in
+      self.speech.start { result in
+        switch result {
+        case .success(let text): promise.resolve(text)
+        case .failure(let error): promise.reject("SpeechUnavailable", error.localizedDescription)
+        }
+      }
+    }.runOnQueue(.main)
+    Function("cancelTranscription") { self.speech.cancel() }
+    OnDestroy { DispatchQueue.main.async { self.speech.cancel() } }
+
 
     /// Application Support/expense-app — the same folder name the desktop uses.
     Function("dataRoot") { () -> String in

@@ -21,6 +21,15 @@ pub fn dispatch(s: &AppService, command: &str, a: Value) -> Result<Value> {
             Ok(serde_json::to_value($e?)?)
         };
     }
+    macro_rules! text_arg {
+        ($key:literal) => {
+            a.get($key)
+                .and_then(Value::as_str)
+                .ok_or_else(|| AppError::invalid(concat!("Missing ", $key)))?
+        };
+    }
+    let local_today = chrono::Local::now().date_naive().to_string();
+    let today = || a["today"].as_str().unwrap_or(&local_today);
     let id = || a["id"].as_str().unwrap_or("");
     let token = || a["token"].as_str().unwrap_or("");
     match command {
@@ -103,6 +112,43 @@ pub fn dispatch(s: &AppService, command: &str, a: Value) -> Result<Value> {
         "export_claim_xlsx" => out!(s.export_claim_xlsx(id())),
         "export_expenses_xlsx" => out!(s.export_expenses_xlsx(arg!("ids"))),
         "open_xlsx_export" => out!(s.xlsx_export_path(id())),
-        _ => Err(AppError::invalid("Unknown command.")),
+        "export_all_data" => out!(s.export_all_data()),
+        "open_data_export" => out!(s.data_export_path(id())),
+        "list_workspaces" => out!(s.workspaces()),
+        "save_workspace" => out!(s.save_workspace(arg!("input"))),
+        "list_categories" => out!(s.categories(text_arg!("workspaceId"))),
+        "save_category" => out!(s.save_category(arg!("input"))),
+        "delete_category" => out!(s.delete_category(id())),
+        "list_accounts" => out!(s.accounts(text_arg!("workspaceId"))),
+        "save_account" => out!(s.save_account(arg!("input"))),
+        "delete_account" => out!(s.delete_account(id())),
+        "list_transactions" => out!(s.transactions(arg!("filter"))),
+        "get_transaction" => out!(s.transaction(id())),
+        "save_transaction" => out!(s.save_transaction(arg!("input"))),
+        "delete_transactions" => out!(s.delete_transactions(arg!("ids"))),
+        "record_expense" => out!(s.record_expense(arg!("input"))),
+        "list_budgets" => out!(s.budgets(text_arg!("workspaceId"), text_arg!("period"))),
+        "save_budget" => out!(s.save_budget(arg!("input"))),
+        "delete_budget" => out!(s.delete_budget(id())),
+        "list_bills" => out!(s.bills(text_arg!("workspaceId"))),
+        "get_bill" => out!(s.bill(id(), today())),
+        "save_bill" => out!(s.save_bill(arg!("input"))),
+        "delete_bill" => out!(s.delete_bill(id())),
+        "list_bill_occurrences" => {
+            out!(s.bill_occurrences(text_arg!("workspaceId"), today(), arg!("horizonDays")))
+        }
+        "pay_bill" => out!(s.pay_bill(arg!("input"))),
+        "report_monthly" => out!(s.monthly_report(text_arg!("workspaceId"), text_arg!("period"))),
+        "report_overview" => out!(s.overview(text_arg!("workspaceId"), today())),
+        "export_transactions_csv" => out!(s.export_transactions_csv(arg!("filter"))),
+        "list_reminders" => out!(s.reminders(today(), arg!("horizonDays"))),
+        "ack_reminder" => out!(s.ack_reminder(id())),
+        "parse_quick_add" => {
+            out!(s.parse_quick_add(text_arg!("workspaceId"), text_arg!("text"), today()))
+        }
+        "list_suggestions" => out!(s.suggestions(text_arg!("workspaceId"))),
+        "accept_suggestion" => out!(s.accept_suggestion(id(), arg!("input"))),
+        "dismiss_suggestion" => out!(s.dismiss_suggestion(id())),
+        _ => crate::business_dispatch::dispatch(s, command, a),
     }
 }

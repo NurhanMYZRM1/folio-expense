@@ -62,7 +62,9 @@
     "ios": "npm run rust:ios && expo run:ios --port 8082",
     "typecheck": "tsc --noEmit",
     "lint": "expo lint",
-    "eas-build-pre-install": "sh scripts/eas-build-pre-install.sh"
+    "eas-build-pre-install": "sh scripts/eas-build-pre-install.sh",
+    "rust:android": "sh scripts/build-rust-android.sh",
+    "android": "npm run rust:android && expo run:android --port 8082"
   },
   "private": true
 }

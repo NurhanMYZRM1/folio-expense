@@ -55,7 +55,9 @@ The app displays the actual data location in Settings. The database contains rel
 
 If an export directory is configured in Settings, exporting a CSV also copies a human-named file there (`Folio-<claim number>.csv` for a claim, `Folio-expenses-<date>.csv` for a selected-expenses export). Exporting again after the same name is already taken there — for example after editing an expense and re-exporting — does not fail: it retries with ` (2)`, ` (3)`, and so on inserted before `.csv` until a free name is found.
 
-For a backup, close Folio and copy the entire `expense-app` directory, including any SQLite WAL files. Restore with the app closed. API keys stay in the OS vault and are not part of this backup. Cloud sync is not implemented or required.
+For a data export or backup, open **Settings → Export all my data → Create data archive**. The ZIP contains all database tables as JSON, a consistent SQLite snapshot, original receipts and existing reports, with restore instructions inside. Committed WAL changes are included. Cache files, logs, previous data archives and OS-vault credentials are excluded. The archive is not encrypted; save it somewhere protected. On desktop, **Open archive location / share** opens its folder; the phone bridge uses the native share sheet (not yet verified on a device).
+
+To restore, quit Folio and keep a backup of the current data folder. Extract the archive's `database/`, `receipts/` and `exports/` into an empty Folio data folder, then open this version of Folio or newer. Do not overlay a running or existing database/WAL. API credentials must be configured again. You can also close Folio and copy the entire `expense-app` directory, including any SQLite WAL files. Cloud sync is not implemented or required.
 
 Currency conversion is on by default and can be turned off in Settings. It downloads published rates from Frankfurter (https://frankfurter.dev, European Central Bank reference rates, free and without an account); each request contains only two currency codes and a date, never receipt content. Downloaded rates are kept in the local database, so each is fetched once. ECB does not publish BHD, KWD or OMR rates; such receipts keep their own currency.
 
@@ -83,6 +85,16 @@ Build macOS Apple Silicon explicitly with `npm run tauri -- build --target aarch
 For unattended macOS packaging, use `CI=true npm run package` to skip Finder window decoration while creating the DMG. This keeps packaging independent of an unlocked graphical session.
 
 Unsigned builds are for local evaluation. Public distribution requires your Apple Developer signing/notarization credentials and Windows code-signing identity. No signing credentials or certificates are included.
+
+## Cloud schema security checks
+
+The optional sync server currently has a schema and SQL authorization functions; sign-in, the sync client and team UI are still missing. With Docker running, verify all server migrations and the security suite in an isolated Postgres 17 container:
+
+```sh
+python3 supabase/tests/run-security.py
+```
+
+The runner uses synthetic auth/storage schemas, opens no ports, removes its container on exit, and never uses real accounts or sends invitations. It covers retries, tombstones, conflicts, workspace isolation, viewer and removed-member denial, invitation expiry/revocation/single use, and join rate limiting. This validates SQL and row-level security; it does not verify the Supabase Auth, PostgREST or Storage HTTP APIs. Full local Supabase setup and client integration remain to be completed. No hosted project is configured.
 
 ## Design and delivery notes
 

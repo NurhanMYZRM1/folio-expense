@@ -2,3 +2,6 @@
 *.png binary
 *.ico binary
 *.icns binary
+*.sqlite binary
+*.pdf binary
+src-tauri/tests/fixtures/v3-main/exports/** binary

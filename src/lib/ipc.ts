@@ -1,10 +1,54 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import type {
+  ReceiptItemsReview,
+  ReceiptItemsInput,
+  TaxRules,
+  IncomeTaxInput,
+  IncomeTaxEstimate,
+  SstInput,
+  SstCalculation,
+  EinvoiceValidation,
+  BusinessProfile,
+  CustomerInput,
+  Customer,
+  InventoryItemInput,
+  InventoryItem,
+  StockAdjustmentInput,
+  StockMovement,
+  InvoiceInput,
+  Invoice,
+  InvoicePaymentInput,
+  BusinessReport,
+  Account,
+  AccountInput,
   AppInfo,
+  Bill,
+  BillDetail,
+  BillInput,
+  BillOccurrence,
+  BillPaymentInput,
+  BudgetInput,
+  Budget,
+  BudgetProgress,
+  Category,
+  CategoryInput,
+  MonthlyReport,
+  Overview,
+  QuickAddDraft,
+  RecordExpenseInput,
+  Reminder,
+  Transaction,
+  TransactionFilter,
+  TransactionInput,
+  TransactionPage,
+  TransactionSuggestion,
+  Workspace,
+  WorkspaceInput,
   Claim,
   ClaimDetail,
   ClaimStatus,
   CsvExport,
+  DataExport,
   Expense,
   ExpenseEdit,
   ExportSnapshot,
@@ -24,6 +68,8 @@ function call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   return invoke<T>(command, args);
 }
 export const api = {
+  exportAllData: () => call<DataExport>('export_all_data'),
+  openDataExport: (id: string) => call<void>('open_data_export', { id }),
   expenses: () => call<Expense[]>('list_expenses'),
   expense: (id: string) => call<Expense>('get_expense', { id }),
   createExpense: () => call<Expense>('create_expense'),
@@ -76,4 +122,91 @@ export const api = {
   exportClaimXlsx: (id: string) => call<CsvExport>('export_claim_xlsx', { id }),
   exportExpensesXlsx: (ids: string[]) => call<CsvExport>('export_expenses_xlsx', { ids }),
   openXlsxExport: (id: string) => call<void>('open_xlsx_export', { id }),
+  saveInvoicePdf: (workspaceId: string, invoiceId: string, version: number, base64: string) =>
+    call<CsvExport>('save_invoice_pdf', { workspaceId, invoiceId, version, base64 }),
+  openInvoicePdf: (id: string) => call<void>('open_invoice_pdf', { id }),
+  receiptItems: (expenseId: string) => call<ReceiptItemsReview>('get_receipt_items', { expenseId }),
+  saveReceiptItems: (input: ReceiptItemsInput) =>
+    call<ReceiptItemsReview>('save_receipt_items', { input }),
+  businessProfile: (workspaceId: string) =>
+    call<BusinessProfile | null>('get_business_profile', { workspaceId }),
+  saveBusinessProfile: (input: BusinessProfile) =>
+    call<BusinessProfile>('save_business_profile', { input }),
+  customers: (workspaceId: string, includeArchived = false) =>
+    call<Customer[]>('list_customers', { workspaceId, includeArchived }),
+  saveCustomer: (input: CustomerInput) => call<Customer>('save_customer', { input }),
+  deleteCustomer: (id: string) => call<void>('delete_customer', { id }),
+  deleteInventoryItem: (id: string) => call<void>('delete_inventory_item', { id }),
+  inventoryItems: (workspaceId: string, includeArchived = false) =>
+    call<InventoryItem[]>('list_inventory_items', { workspaceId, includeArchived }),
+  saveInventoryItem: (input: InventoryItemInput) =>
+    call<InventoryItem>('save_inventory_item', { input }),
+  adjustStock: (input: StockAdjustmentInput) => call<InventoryItem>('adjust_stock', { input }),
+  stockMovements: (workspaceId: string, itemId: string) =>
+    call<StockMovement[]>('list_stock_movements', { workspaceId, itemId }),
+  invoices: (workspaceId: string) => call<Invoice[]>('list_invoices', { workspaceId }),
+  invoice: (workspaceId: string, id: string) => call<Invoice>('get_invoice', { workspaceId, id }),
+  saveInvoice: (input: InvoiceInput) => call<Invoice>('save_invoice', { input }),
+  issueInvoice: (workspaceId: string, id: string, version: number) =>
+    call<Invoice>('issue_invoice', { workspaceId, id, version }),
+  voidInvoice: (workspaceId: string, id: string, version: number) =>
+    call<Invoice>('void_invoice', { workspaceId, id, version }),
+  recordInvoicePayment: (input: InvoicePaymentInput) =>
+    call<Invoice>('record_invoice_payment', { input }),
+  taxRules: (assessmentYear: number) => call<TaxRules>('get_tax_rules', { assessmentYear }),
+  estimateIncomeTax: (input: IncomeTaxInput) =>
+    call<IncomeTaxEstimate>('estimate_income_tax', { input }),
+  calculateSst: (input: SstInput) => call<SstCalculation>('calculate_sst', { input }),
+  validateEinvoice: (workspaceId: string, invoiceId: string) =>
+    call<EinvoiceValidation>('validate_einvoice', { workspaceId, invoiceId }),
+  businessReport: (workspaceId: string, today: string) =>
+    call<BusinessReport>('report_business', { workspaceId, today }),
+  // Finance ledger (docs/DECISIONS.md). `today` is the device's local date
+  // (YYYY-MM-DD); periods are YYYY-MM.
+  workspaces: () => call<Workspace[]>('list_workspaces'),
+  saveWorkspace: (input: WorkspaceInput) => call<Workspace>('save_workspace', { input }),
+  categories: (workspaceId: string) => call<Category[]>('list_categories', { workspaceId }),
+  saveCategory: (input: CategoryInput) => call<Category>('save_category', { input }),
+  deleteCategory: (id: string) => call<void>('delete_category', { id }),
+  accounts: (workspaceId: string) => call<Account[]>('list_accounts', { workspaceId }),
+  saveAccount: (input: AccountInput) => call<Account>('save_account', { input }),
+  deleteAccount: (id: string) => call<void>('delete_account', { id }),
+  transactions: (filter: TransactionFilter) =>
+    call<TransactionPage>('list_transactions', { filter }),
+  transaction: (id: string) => call<Transaction>('get_transaction', { id }),
+  saveTransaction: (input: TransactionInput) => call<Transaction>('save_transaction', { input }),
+  deleteTransactions: (ids: string[]) => call<number>('delete_transactions', { ids }),
+  recordExpense: (input: RecordExpenseInput) => call<Transaction>('record_expense', { input }),
+  budgets: (workspaceId: string, period: string) =>
+    call<BudgetProgress[]>('list_budgets', { workspaceId, period }),
+  saveBudget: (input: BudgetInput) => call<Budget>('save_budget', { input }),
+  deleteBudget: (id: string) => call<void>('delete_budget', { id }),
+  bills: (workspaceId: string) => call<Bill[]>('list_bills', { workspaceId }),
+  bill: (id: string, today: string) => call<BillDetail>('get_bill', { id, today }),
+  saveBill: (input: BillInput) => call<Bill>('save_bill', { input }),
+  deleteBill: (id: string) => call<void>('delete_bill', { id }),
+  billOccurrences: (workspaceId: string, today: string, horizonDays: number) =>
+    call<BillOccurrence[]>('list_bill_occurrences', { workspaceId, today, horizonDays }),
+  payBill: (input: BillPaymentInput) => call<Transaction>('pay_bill', { input }),
+  monthlyReport: (workspaceId: string, period: string) =>
+    call<MonthlyReport>('report_monthly', { workspaceId, period }),
+  overview: (workspaceId: string, today: string) =>
+    call<Overview>('report_overview', { workspaceId, today }),
+  exportTransactionsCsv: (filter: TransactionFilter) =>
+    call<CsvExport>('export_transactions_csv', { filter }),
+  reminders: (today: string, horizonDays: number) =>
+    call<Reminder[]>('list_reminders', { today, horizonDays }),
+  ackReminder: (id: string) => call<void>('ack_reminder', { id }),
+  parseQuickAdd: (workspaceId: string, text: string, today: string) =>
+    call<QuickAddDraft>('parse_quick_add', { workspaceId, text, today }),
+  suggestions: (workspaceId: string) =>
+    call<TransactionSuggestion[]>('list_suggestions', { workspaceId }),
+  acceptSuggestion: (id: string, input: TransactionInput) =>
+    call<Transaction>('accept_suggestion', { id, input }),
+  dismissSuggestion: (id: string) => call<void>('dismiss_suggestion', { id }),
 };
+/** The device's local calendar date, YYYY-MM-DD (D4: never the UTC date). */
+export function localToday(now = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}

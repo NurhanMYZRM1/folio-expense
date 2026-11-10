@@ -1101,6 +1101,7 @@ dependencies = [
  "heif-oxide",
  "image",
  "imagesize",
+ "jni",
  "keyring",
  "open",
  "regex",

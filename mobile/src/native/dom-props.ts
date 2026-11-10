@@ -1,11 +1,13 @@
 // What a shared Folio screen gets from the native side when it runs in a DOM
 // component: core calls, pickers, PDF pages, sharing and navigation.
+import { Asset } from "expo-asset";
 import { Directory, File, Paths } from "expo-file-system";
 import { router, useLocalSearchParams, useNavigation, type Href } from "expo-router";
 import * as Sharing from "expo-sharing";
 import { useCallback, useMemo } from "react";
 import { ActionSheetIOS, Alert, Platform } from "react-native";
 import FolioCore from "../../modules/folio-core";
+import { requestReminders } from "~/core/reminders";
 import { dataRoot, invokeRaw, useDataVersion } from "~/core/folio";
 import { pickReceipts, type ReceiptSource } from "~/core/pickers";
 import type { FolioHostProps, NavigateMode } from "~/dom/host";
@@ -36,6 +38,9 @@ function remember(command: string, args: string, response: string) {
     const claim = (result as { claim: { id: string; claimNumber: string } }).claim;
     claimNumbers.set(claim.id, claim.claimNumber);
   } else if (
+    command === "save_invoice_pdf" ||
+    command === "export_all_data" ||
+    command === "export_transactions_csv" ||
     command === "export_claim_csv" ||
     command === "export_expenses_csv" ||
     command === "export_claim_xlsx" ||
@@ -51,12 +56,31 @@ function remember(command: string, args: string, response: string) {
 
 /** Generated reports, CSVs and Excel workbooks open in the share sheet (Files, Mail, Print…). */
 async function invoke(command: string, args: string): Promise<string> {
+  if (command === "read_platform_info") return JSON.stringify({ result: { platform: Platform.OS, paymentAccess: Platform.OS === "android" && FolioCore.paymentNotificationAccess() } });
+  if (command === "request_payment_access") {
+    if (Platform.OS !== "android") return JSON.stringify({ error: { code: "Unsupported", message: "Payment notification access is Android only." } });
+    await FolioCore.requestPaymentNotificationAccess();
+    return JSON.stringify({ result: null });
+  }
+  if (command === "request_reminders") return JSON.stringify({ result: await requestReminders() });
+  if (command === "transcribe_voice") {
+    try { return JSON.stringify({ result: await FolioCore.transcribeVoice() }); }
+    catch (e) { return JSON.stringify({ error: { code: "SpeechUnavailable", message: e instanceof Error ? e.message : String(e) } }); }
+  }
+  if (command === "cancel_transcription") { FolioCore.cancelTranscription(); return JSON.stringify({ result: null }); }
+  if (command === "read_invoice_font") {
+    // Metro bundles the same font used by the native claim PDF generator.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const asset = Asset.fromModule(require("@fontsource/noto-sans/files/noto-sans-latin-400-normal.woff"));
+    await asset.downloadAsync();
+    return JSON.stringify({ result: new File(asset.localUri ?? asset.uri).base64Sync() });
+  }
   const response = await invokeRaw(command, args);
   if (response.startsWith('{"error"')) return response;
-  if (command === "open_export" || command === "open_csv_export" || command === "open_xlsx_export") {
+  if (command === "open_invoice_pdf" || command === "open_export" || command === "open_csv_export" || command === "open_xlsx_export" || command === "open_data_export") {
     const path = (JSON.parse(response) as { result?: string }).result;
     const id = (JSON.parse(args) as { id?: string }).id ?? "";
-    if (path) await share(path, exportNames.get(id) ?? (command === "open_export" ? "Folio claim report.pdf" : undefined));
+    if (path) await share(path, exportNames.get(id) ?? (command === "open_invoice_pdf" || command === "open_export" ? "Folio claim report.pdf" : undefined));
     return JSON.stringify({ result: null });
   }
   remember(command, args, response);

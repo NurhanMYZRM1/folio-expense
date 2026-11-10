@@ -472,27 +472,58 @@ test('Mark as ready approves an expense even when merchant, date and total are b
   }
 });
 
-test('Save preferences returns to the top of the Settings page', async ({ page }) => {
-  const directory = await mkdtemp(path.join(tmpdir(), 'folio-settings-e2e-'));
-  const bridge = new RustBridge(path.join(directory, 'app'));
-  await installBridge(page, bridge, []);
-  await page.goto('about:blank');
-  try {
-    await page.goto('/#/settings');
-    const save = page.getByRole('button', { name: 'Save preferences' });
-    await save.scrollIntoViewIfNeeded();
-    expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(200);
-    await save.click();
-    await expect(page.getByText('Preferences saved locally.')).toBeVisible();
-    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
-    // Still on Settings, not sent to the home page.
-    await expect(page).toHaveURL(/#\/settings$/);
-    await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
-  } finally {
+for (const viewport of [
+  { width: 1440, height: 900 },
+  { width: 390, height: 844 },
+]) {
+  test(`Save preferences stays visible and persists changes at ${viewport.width}px`, async ({
+    page,
+  }, testInfo) => {
+    await page.setViewportSize(viewport);
+    const directory = await mkdtemp(path.join(tmpdir(), 'folio-settings-e2e-'));
+    const bridge = new RustBridge(path.join(directory, 'app'));
+    await installBridge(page, bridge, []);
     await page.goto('about:blank');
-    await bridge.close();
-  }
-});
+    try {
+      await page.goto('/#/settings');
+      const save = page.getByRole('button', { name: 'Save preferences', exact: true });
+      await expect(save).toBeInViewport({ ratio: 1 });
+      const company = page.getByLabel('Organization or personal label', { exact: true });
+      await company.fill('Saved from the visible toolbar');
+      await expect(page.getByText('You have unsaved changes.', { exact: true })).toBeVisible();
+      // Verify the control stays in the viewport through the entire long form.
+      const height = await page.evaluate(() => document.documentElement.scrollHeight);
+      for (const y of [height / 3, (height * 2) / 3, height]) {
+        await page.evaluate((scrollY) => window.scrollTo(0, scrollY), y);
+        await expect(save).toBeInViewport({ ratio: 1 });
+        // Being in the viewport is insufficient if another sticky layer covers it.
+        await expect
+          .poll(() =>
+            save.evaluate((button) => {
+              const box = button.getBoundingClientRect();
+              return button.contains(
+                document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2),
+              );
+            }),
+          )
+          .toBe(true);
+      }
+      await page.screenshot({ path: testInfo.outputPath('settings-save-toolbar.png') });
+      const scrollBefore = await page.evaluate(() => window.scrollY);
+      await save.click();
+      await expect(page.getByText('Preferences saved locally.')).toBeVisible();
+      await expect(page.getByText('Preferences are up to date.', { exact: true })).toBeVisible();
+      expect(await page.evaluate(() => window.scrollY)).toBe(scrollBefore);
+      await expect(page).toHaveURL(/#\/settings$/);
+      await page.reload();
+      await expect(company).toHaveValue('Saved from the visible toolbar');
+      await expect(save).toBeInViewport({ ratio: 1 });
+    } finally {
+      await page.goto('about:blank');
+      await bridge.close();
+    }
+  });
+}
 
 test('several receipts are read at the same time', async ({ page }) => {
   test.setTimeout(240_000);

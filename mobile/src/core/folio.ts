@@ -8,8 +8,10 @@ import type { AppError } from "@folio/bindings/generated";
 const READS = new Set([
   "list_expenses", "get_expense", "read_receipt", "read_thumbnail", "list_claims", "get_claim",
   "get_settings", "app_info", "list_jobs", "export_snapshot", "open_export", "open_csv_export",
-  "open_xlsx_export",
+  "open_xlsx_export", "open_data_export",
 ]);
+
+const READ_ONLY_NAME = /^(list|get|read|report|parse)_/;
 
 let opened: Promise<void> | null = null;
 let version = 0;
@@ -51,7 +53,9 @@ export function openCore(): Promise<void> {
 
 /** Polling that only changes records when it returns work. */
 function changesRecords(command: string, response: string): boolean {
-  if (READS.has(command) || response.startsWith('{"error"')) return false;
+  // Core commands follow a read-only naming rule (docs/DECISIONS.md, D5).
+  if (READS.has(command) || READ_ONLY_NAME.test(command) || response.startsWith('{"error"'))
+    return false;
   if (command === "take_job" || command === "heartbeat") return false;
   if (command === "convert_pending") return response !== '{"result":0}';
   return true;
