@@ -49,6 +49,23 @@ async fn forward(
             )
         })?
 }
+/// Starts Google or Apple sign-in in the system browser, never an embedded
+/// view, so the provider's page is one the person can verify and trust.
+#[tauri::command]
+async fn cloud_oauth_start(s: Service<'_>, provider: String, link: Option<bool>) -> Result<()> {
+    let workspaces = s.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let started = workspaces.dispatch(
+            "cloud_oauth_start",
+            serde_json::json!({"provider":provider,"link":link.unwrap_or(false)}),
+        )?;
+        open::that(started["url"].as_str().unwrap_or_default())
+            .map_err(|_| AppError::new("OpenError", "Unable to open the browser to sign in."))?;
+        Ok(())
+    })
+    .await
+    .map_err(|_| AppError::new("InternalError", "Sign-in was interrupted."))?
+}
 /// Builds the handler from the hand-written commands plus one generated Tauri
 /// command per core command name. A new core operation needs its `dispatch.rs`
 /// entry and its name in the second list; nothing else.
@@ -71,6 +88,7 @@ macro_rules! handler_with_core_commands {
 }
 handler_with_core_commands!(
     [
+        cloud_oauth_start,
         exports::open_data_export,
         business::open_invoice_pdf,
         expenses::list_expenses,
@@ -123,7 +141,6 @@ handler_with_core_commands!(
         cloud_sign_out,
         cloud_request_code,
         cloud_verify_code,
-        cloud_oauth_start,
         cloud_oauth_finish,
         cloud_oauth_cancel,
         cloud_adopt,

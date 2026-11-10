@@ -1,8 +1,16 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Cloud, RefreshCw, LogOut } from 'lucide-react';
+import { Modal } from '../../components/motion';
 import { Panel } from '../../components/ui';
 import { useWorkspace } from '../../app/providers';
-import { api, desktop, type CloudConflict } from '../../lib/ipc';
+import {
+  api,
+  desktop,
+  type CloudConflict,
+  type CloudDiagnosis,
+  type CloudProvider,
+  type CloudStatus,
+} from '../../lib/ipc';
 import { errorMessage } from '../../lib/errors';
 
 function conflictFields(value: unknown): Record<string, unknown> {
@@ -43,17 +51,97 @@ function ConflictComparison({ local, remote }: { local: unknown; remote: unknown
     </div>
   );
 }
+const PROVIDERS: Record<string, string> = { email: 'Email', google: 'Google', apple: 'Apple' };
+const STATES: Record<CloudStatus['state'], string> = {
+  local: 'Not connected. Everything stays on this device.',
+  signedOut: 'Signed out. Changes are saved on this device.',
+  signInAgain: 'Sign in again to resume sync. Changes are saved on this device.',
+  offline: 'Offline — changes are saved on this device and will sync when the connection returns.',
+  needsAttention: 'Sync needs your attention.',
+  pending: 'Changes are waiting to sync.',
+  upToDate: 'No local changes waiting to sync.',
+};
+const when = (value: string | null) => (value ? new Date(value).toLocaleString() : '—');
+
+/** Each layer of the connection checked on its own; nothing here is a secret. */
+function ConnectionDetails() {
+  const [details, setDetails] = useState<CloudDiagnosis | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [failed, setFailed] = useState('');
+  async function check() {
+    setChecking(true);
+    setFailed('');
+    try {
+      setDetails(await api.cloudDiagnose());
+    } catch (error) {
+      setFailed(errorMessage(error));
+    } finally {
+      setChecking(false);
+    }
+  }
+  const rows: [string, string][] = details
+    ? [
+        ['Environment', details.environment],
+        ['Project', details.project],
+        ['App key', details.keyKind],
+        ['Reaches the cloud', details.reachable],
+        ['Signed-in sync', details.authenticated],
+        ['Records waiting', String(details.status.pending)],
+        ['Receipt files waiting', String(details.pendingFiles)],
+        ['Conflicts to review', String(details.status.conflicts)],
+        ['Last successful sync', when(details.status.lastSync)],
+        ['Next automatic retry', when(details.status.retryAt)],
+        ['Last problem', details.status.error ?? '—'],
+        ['Request ID', details.status.requestId ?? '—'],
+      ]
+    : [];
+  return (
+    <details
+      className="cloud-details"
+      onToggle={(e) => {
+        if (e.currentTarget.open && !details) void check();
+      }}
+    >
+      <summary>Connection details</summary>
+      {failed && (
+        <div className="inline-error" role="alert">
+          {failed}
+        </div>
+      )}
+      {details && (
+        <dl>
+          {rows.map(([label, value]) => (
+            <div key={label}>
+              <dt>{label}</dt>
+              <dd>{value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      <button type="button" className="text-button" disabled={checking} onClick={() => void check()}>
+        <RefreshCw size={14} className={checking ? 'spin' : ''} />
+        {checking ? 'Checking…' : 'Check again'}
+      </button>
+    </details>
+  );
+}
+
 export function CloudSync() {
   const {
     cloud,
     cloudBusy,
     cloudError,
+    cloudBrowser,
+    cloudChoice,
     syncCloud,
     signInCloud,
+    signInWithProvider,
+    cancelProviderSignIn,
+    adoptCloudData,
     signOutCloud,
     resolveCloudConflict,
   } = useWorkspace();
-  const [email, setEmail] = useState('paragonxplays@gmail.com');
+  const [typed, setEmail] = useState<string | null>(null);
   const [codeSent, setCodeSent] = useState(false);
   const [requesting, setRequesting] = useState(false);
   const [message, setMessage] = useState('');
@@ -62,6 +150,8 @@ export function CloudSync() {
   const [reviewing, setReviewing] = useState<string | null>(null);
   const code = useRef<HTMLInputElement>(null);
   const busy = cloudBusy || requesting;
+  // The account these records belong to is offered first; any address can be typed.
+  const email = typed ?? cloud?.email ?? '';
 
   useEffect(() => {
     let active = true;
@@ -111,19 +201,25 @@ export function CloudSync() {
       setLocalError(errorMessage(error));
     }
   }
+  function withProvider(provider: CloudProvider, link = false) {
+    setLocalError('');
+    setMessage('');
+    void signInWithProvider(provider, link).catch((error) => setLocalError(errorMessage(error)));
+  }
   async function resolve(id: string, choice: 'local' | 'remote') {
     setLocalError('');
     try {
       await resolveCloudConflict(id, choice);
       setConflicts(await api.cloudConflicts());
       setReviewing(null);
-      await syncCloud();
+      await syncCloud(false, true);
     } catch (error) {
       setLocalError(errorMessage(error));
     }
   }
   if (!desktop) return null;
   const error = localError || cloudError || cloud?.error;
+  const missing = (['google', 'apple'] as const).filter((p) => !cloud?.providers.includes(p));
   return (
     <Panel title="Cloud sync" action={<Cloud size={17} />}>
       <div className="settings-fields">
@@ -135,21 +231,24 @@ export function CloudSync() {
         {cloud?.signedIn ? (
           <>
             <p>
-              <strong>Connected as {cloud.email}</strong>
+              <strong>Connected as {cloud.email ?? 'your account'}</strong>
             </p>
             <div role="status" aria-live="polite">
               {cloudBusy
                 ? 'Synchronizing records and files…'
-                : cloud.pending
+                : cloud.state === 'pending'
                   ? `${cloud.pending} changes waiting to sync.`
                   : cloud.conflicts
                     ? 'Some changes need your review.'
-                    : 'No local changes waiting to sync.'}
+                    : STATES[cloud.state]}
             </div>
             <p className="field-help">
               Last successful sync:{' '}
               {cloud.lastSync ? new Date(cloud.lastSync).toLocaleString() : 'Not yet completed'}
               {cloud.conflicts > 0 && ` · ${cloud.conflicts} conflicts need review`}
+              {cloud.state === 'offline' &&
+                cloud.retryAt &&
+                ` · Next automatic try ${new Date(cloud.retryAt).toLocaleTimeString()}`}
             </p>
             <div className="credential-input">
               <button
@@ -158,7 +257,7 @@ export function CloudSync() {
                 disabled={busy}
                 onClick={() => {
                   setLocalError('');
-                  void syncCloud();
+                  void syncCloud(false, true);
                 }}
               >
                 <RefreshCw size={14} className={cloudBusy ? 'spin' : ''} />
@@ -174,73 +273,123 @@ export function CloudSync() {
               </button>
             </div>
             <p className="field-help">
-              Signing out pauses cloud transfers. Pending edits stay on this device.
+              Sign-in methods:{' '}
+              {cloud.providers.map((p) => PROVIDERS[p] ?? p).join(', ') || 'Email'}. Signing out
+              pauses cloud transfers. Pending edits stay on this device.
             </p>
+            {missing.length > 0 && (
+              <div className="credential-input">
+                {missing.map((provider) => (
+                  <button
+                    key={provider}
+                    type="button"
+                    className="text-button"
+                    disabled={busy || cloudBrowser}
+                    onClick={() => withProvider(provider, true)}
+                  >
+                    Add {PROVIDERS[provider]} sign-in
+                  </button>
+                ))}
+              </div>
+            )}
           </>
         ) : (
-          <form onSubmit={codeSent ? verifyCode : requestCode}>
-            <label className="field">
-              <span>Email</span>
-              <input
-                type="email"
-                autoComplete="username"
-                value={email}
-                required
-                disabled={busy || codeSent}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-            </label>
-            {codeSent && (
-              <label className="field">
-                <span>Sign-in code or email link</span>
-                <input
-                  ref={code}
-                  type="text"
-                  autoComplete="one-time-code"
-                  inputMode="text"
-                  required
-                  maxLength={4096}
-                  disabled={busy}
-                />
-              </label>
+          <>
+            {cloud?.linked && (
+              <p role="status">
+                {STATES[cloud.state]} These records belong to{' '}
+                {cloud.email ?? 'the account that was connected here'}. Another account opens its
+                own separate records.
+              </p>
             )}
             <div className="credential-input">
-              <button className="button primary" type="submit" disabled={busy}>
-                {busy
-                  ? 'Connecting…'
-                  : codeSent
-                    ? 'Sign in and enable sync'
-                    : 'Email me a sign-in link'}
-              </button>
-              {codeSent ? (
+              {(['google', 'apple'] as const).map((provider) => (
                 <button
-                  className="text-button"
+                  key={provider}
                   type="button"
-                  disabled={busy}
-                  onClick={() => {
-                    setCodeSent(false);
-                    setMessage('');
-                  }}
+                  className="button secondary"
+                  disabled={busy || cloudBrowser}
+                  onClick={() => withProvider(provider)}
                 >
-                  Use another email or resend
+                  Continue with {PROVIDERS[provider]}
                 </button>
-              ) : (
-                // Supabase sends only a few sign-in emails per hour; reuse one already received.
-                <button
-                  className="text-button"
-                  type="button"
-                  disabled={busy}
-                  onClick={() => setCodeSent(true)}
-                >
-                  I already have a sign-in link
-                </button>
-              )}
+              ))}
             </div>
-            <p className="field-help">
-              This installation is bound to the owner of the imported workspace. Signing in enables
-              automatic uploads of existing and new records and receipt files.
-            </p>
-          </form>
+            <form onSubmit={codeSent ? verifyCode : requestCode}>
+              <label className="field">
+                <span>Or sign in by email</span>
+                <input
+                  type="email"
+                  autoComplete="username"
+                  value={email}
+                  required
+                  disabled={busy || codeSent}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+              </label>
+              {codeSent && (
+                <label className="field">
+                  <span>Sign-in code or email link</span>
+                  <input
+                    ref={code}
+                    type="text"
+                    autoComplete="one-time-code"
+                    inputMode="text"
+                    required
+                    maxLength={4096}
+                    disabled={busy}
+                  />
+                </label>
+              )}
+              <div className="credential-input">
+                <button className="button primary" type="submit" disabled={busy}>
+                  {busy
+                    ? 'Connecting…'
+                    : codeSent
+                      ? 'Sign in and enable sync'
+                      : 'Email me a sign-in link'}
+                </button>
+                {codeSent ? (
+                  <button
+                    className="text-button"
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      setCodeSent(false);
+                      setMessage('');
+                    }}
+                  >
+                    Use another email or resend
+                  </button>
+                ) : (
+                  // Supabase sends only a few sign-in emails per hour; reuse one already received.
+                  <button
+                    className="text-button"
+                    type="button"
+                    disabled={busy}
+                    onClick={() => setCodeSent(true)}
+                  >
+                    I already have a sign-in link
+                  </button>
+                )}
+              </div>
+              <p className="field-help">
+                Use the same account on each device to see the same records. Signing in turns on
+                automatic uploads of existing and new records and receipt files.
+              </p>
+            </form>
+          </>
+        )}
+        {cloudBrowser && (
+          <div className="notice-box" role="status">
+            <div>
+              <strong>Finish signing in in your browser</strong>
+              <p>Folio continues here as soon as the browser returns.</p>
+              <button type="button" className="text-button" onClick={cancelProviderSignIn}>
+                Cancel sign-in
+              </button>
+            </div>
+          </div>
         )}
         {message && !cloud?.signedIn && <p role="status">{message}</p>}
         {error && (
@@ -287,7 +436,49 @@ export function CloudSync() {
             </div>
           </section>
         ))}
+        <ConnectionDetails />
       </div>
+      <Modal
+        open={!!cloudChoice}
+        onClose={() => !busy && void adoptCloudData('cancel').catch(() => undefined)}
+        labelledBy="cloud-choice-title"
+        describedBy="cloud-choice-body"
+        role="alertdialog"
+      >
+        <h2 id="cloud-choice-title">Add this device’s records to your account?</h2>
+        <p id="cloud-choice-body">
+          This device already holds expenses that belong to no account.
+          {cloudChoice?.email ? ` You are signing in as ${cloudChoice.email}.` : ''} Adding them
+          saves a backup first, then uploads them and keeps them in sync. Keeping them separate
+          leaves them on this device only, and the account opens with its own records.
+        </p>
+        <div className="modal-actions">
+          <button
+            className="text-button"
+            disabled={busy}
+            onClick={() => void adoptCloudData('cancel').catch(() => undefined)}
+          >
+            Cancel sign-in
+          </button>
+          <button
+            className="button secondary"
+            data-autofocus
+            disabled={busy}
+            onClick={() =>
+              void adoptCloudData('separate').catch((e) => setLocalError(errorMessage(e)))
+            }
+          >
+            Keep them separate
+          </button>
+          <button
+            className="button primary"
+            disabled={busy}
+            onClick={() => void adoptCloudData('join').catch((e) => setLocalError(errorMessage(e)))}
+          >
+            Add to this account
+          </button>
+        </div>
+      </Modal>
     </Panel>
   );
 }

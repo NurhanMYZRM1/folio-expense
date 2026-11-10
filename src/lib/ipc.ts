@@ -60,11 +60,40 @@ import type {
 } from '../bindings/generated';
 export type CloudStatus = {
   signedIn: boolean;
+  /** A cloud account owns these records, whether or not it is signed in now. */
+  linked: boolean;
   email: string | null;
+  providers: string[];
   pending: number;
   conflicts: number;
   lastSync: string | null;
   error: string | null;
+  state:
+    | 'local'
+    | 'signedOut'
+    | 'signInAgain'
+    | 'offline'
+    | 'needsAttention'
+    | 'pending'
+    | 'upToDate';
+  failure: string | null;
+  retryAt: string | null;
+  requestId: string | null;
+};
+/** What a sign-in attempt led to. `chooseData` waits for `cloudAdopt`. */
+export type CloudOutcome =
+  | { outcome: 'signedIn' | 'switched' | 'linked' | 'cancelled'; status: CloudStatus }
+  | { outcome: 'chooseData'; email: string | null };
+export type CloudProvider = 'google' | 'apple';
+export type CloudDiagnosis = {
+  environment: string;
+  project: string;
+  keyKind: string;
+  callback: string;
+  reachable: string;
+  authenticated: string;
+  pendingFiles: number;
+  status: CloudStatus;
 };
 export type CloudConflict = {
   id: string;
@@ -79,17 +108,38 @@ function call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
       code: 'DesktopRequired',
       message: 'Open the Folio desktop app to use your local expense workspace.',
     });
-  return invoke<T>(command, args);
+  const result = invoke<T>(command, args);
+  // Lets sync follow an edit promptly without each screen asking for it.
+  if (!QUIET.test(command))
+    void result.then(
+      () => window.dispatchEvent(new Event('folio:changed')),
+      () => undefined,
+    );
+  return result;
 }
+/** Commands that never change records, so need no sync afterwards. */
+const QUIET =
+  /^(list|get|read|report|parse|cloud|open|workspace)_|^(app_info|take_job|heartbeat|online_available|export_snapshot)$/;
 export const api = {
   cloudStatus: () => call<CloudStatus>('cloud_status'),
   cloudSignIn: (email: string, password: string) =>
-    call<CloudStatus>('cloud_sign_in', { email, password }),
+    call<CloudOutcome>('cloud_sign_in', { email, password }),
   cloudRequestCode: (email: string) => call<CloudStatus>('cloud_request_code', { email }),
   cloudVerifyCode: (email: string, code: string) =>
-    call<CloudStatus>('cloud_verify_code', { email, code }),
+    call<CloudOutcome>('cloud_verify_code', { email, code }),
+  /**
+   * Opens Google or Apple in the system browser. The phone finishes inside this
+   * call; the desktop returns nothing and finishes when the browser comes back.
+   */
+  cloudOauthStart: (provider: CloudProvider, link: boolean) =>
+    call<CloudOutcome | null>('cloud_oauth_start', { provider, link }),
+  cloudOauthFinish: (url: string) => call<CloudOutcome>('cloud_oauth_finish', { url }),
+  cloudOauthCancel: () => call<null>('cloud_oauth_cancel'),
+  cloudAdopt: (choice: 'join' | 'separate' | 'cancel') =>
+    call<CloudOutcome>('cloud_adopt', { choice }),
+  cloudDiagnose: () => call<CloudDiagnosis>('cloud_diagnose'),
   cloudSignOut: () => call<CloudStatus>('cloud_sign_out'),
-  cloudSync: () => call<CloudStatus>('cloud_sync'),
+  cloudSync: (force = false) => call<CloudStatus>('cloud_sync', { force }),
   cloudConflicts: () => call<CloudConflict[]>('cloud_conflicts'),
   cloudResolveConflict: (id: string, choice: 'local' | 'remote') =>
     call<CloudStatus>('cloud_resolve_conflict', { id, choice }),

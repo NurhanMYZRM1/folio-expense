@@ -53,8 +53,17 @@ const navigation = [
   { to: '/import', label: 'Import receipts', icon: Upload },
 ];
 function Shell() {
-  const { settings, expenses, loading, error, refresh, notify, setSettings, processing } =
-    useWorkspace();
+  const {
+    settings,
+    expenses,
+    loading,
+    error,
+    refresh,
+    notify,
+    setSettings,
+    processing,
+    finishProviderSignIn,
+  } = useWorkspace();
   const location = useLocation(),
     navigate = useNavigate();
   const pending = expenses.filter((e) => e.status === 'needs_review').length;
@@ -66,6 +75,12 @@ function Shell() {
       for (const value of urls) {
         try {
           const url = new URL(value);
+          if (url.protocol === 'expenseapp:' && url.hostname === 'auth') {
+            // The browser returning from Google or Apple. The core checks and redeems it.
+            navigate('/settings');
+            void finishProviderSignIn(value);
+            continue;
+          }
           if (url.protocol !== 'expenseapp:' || url.hostname !== 'receipt') continue;
           const id = url.pathname.slice(1);
           const found = (await api.expenses()).find((e) => e.receiptId === id);
@@ -87,7 +102,7 @@ function Shell() {
       cancelled = true;
       cleanup?.();
     };
-  }, [navigate, notify]);
+  }, [navigate, notify, finishProviderSignIn]);
   async function toggleTheme() {
     const next = {
       ...settings,

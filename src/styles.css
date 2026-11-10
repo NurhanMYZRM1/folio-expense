@@ -3318,3 +3318,28 @@ progress {
   font-size: 13px;
   margin-top: 5px;
 }
+/* Cloud sync: connection details */
+.cloud-details summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--muted);
+}
+.cloud-details dl {
+  margin: 12px 0;
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+}
+.cloud-details dl > div {
+  display: grid;
+  grid-template-columns: minmax(0, 11rem) minmax(0, 1fr);
+  gap: 12px;
+}
+.cloud-details dt {
+  color: var(--muted);
+}
+.cloud-details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  user-select: text;
+}

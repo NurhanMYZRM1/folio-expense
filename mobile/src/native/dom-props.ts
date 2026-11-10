@@ -4,6 +4,7 @@ import { Asset } from "expo-asset";
 import { Directory, File, Paths } from "expo-file-system";
 import { router, useLocalSearchParams, useNavigation, type Href } from "expo-router";
 import * as Sharing from "expo-sharing";
+import * as WebBrowser from "expo-web-browser";
 import { useCallback, useMemo } from "react";
 import { ActionSheetIOS, Alert, Platform } from "react-native";
 import FolioCore from "../../modules/folio-core";
@@ -54,6 +55,27 @@ function remember(command: string, args: string, response: string) {
   }
 }
 
+/**
+ * Google or Apple sign-in in the system browser (ASWebAuthenticationSession),
+ * finished here. The shared screen only ever receives the outcome: the address
+ * the browser returns, and the session it leads to, stay on the native side.
+ */
+async function providerSignIn(args: string): Promise<string> {
+  const started = await invokeRaw("cloud_oauth_start", args);
+  if (started.startsWith('{"error"')) return started;
+  const { url } = (JSON.parse(started) as { result: { url: string } }).result;
+  const result = await WebBrowser.openAuthSessionAsync(url, "expenseapp://auth/callback");
+  if (result.type !== "success") {
+    await invokeRaw("cloud_oauth_cancel", "{}");
+    return cancelled();
+  }
+  return invokeRaw("cloud_oauth_finish", JSON.stringify({ url: result.url }));
+}
+async function cancelled(): Promise<string> {
+  const status = JSON.parse(await invokeRaw("cloud_status", "{}")) as { result: unknown };
+  return JSON.stringify({ result: { outcome: "cancelled", status: status.result } });
+}
+
 /** Generated reports, CSVs and Excel workbooks open in the share sheet (Files, Mail, Print…). */
 async function invoke(command: string, args: string): Promise<string> {
   if (command === "read_platform_info") return JSON.stringify({ result: { platform: Platform.OS, paymentAccess: Platform.OS === "android" && FolioCore.paymentNotificationAccess() } });
@@ -62,6 +84,7 @@ async function invoke(command: string, args: string): Promise<string> {
     await FolioCore.requestPaymentNotificationAccess();
     return JSON.stringify({ result: null });
   }
+  if (command === "cloud_oauth_start") return providerSignIn(args);
   if (command === "request_reminders") return JSON.stringify({ result: await requestReminders() });
   if (command === "transcribe_voice") {
     try { return JSON.stringify({ result: await FolioCore.transcribeVoice() }); }

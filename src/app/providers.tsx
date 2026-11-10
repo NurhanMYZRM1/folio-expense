@@ -10,7 +10,13 @@ import {
   type ReactNode,
 } from 'react';
 import type { Claim, Expense, Job, Settings } from '../bindings/generated';
-import { api, desktop, type CloudStatus } from '../lib/ipc';
+import {
+  api,
+  desktop,
+  type CloudOutcome,
+  type CloudProvider,
+  type CloudStatus,
+} from '../lib/ipc';
 import { errorMessage } from '../lib/errors';
 import { X, AlertCircle } from 'lucide-react';
 import { startJobRunner } from '../lib/jobs';
@@ -48,8 +54,19 @@ type Store = {
   cloud: CloudStatus | null;
   cloudBusy: boolean;
   cloudError: string;
-  syncCloud: (statusOnly?: boolean) => Promise<void>;
+  /** `force` is a person asking; it is not held back by retry backoff. */
+  syncCloud: (statusOnly?: boolean, force?: boolean) => Promise<void>;
   signInCloud: (email: string, secret: string, method?: 'password' | 'code') => Promise<void>;
+  /** Google or Apple in the system browser; `link` adds it to the signed-in account. */
+  signInWithProvider: (provider: CloudProvider, link?: boolean) => Promise<void>;
+  /** The desktop's browser came back with this address. */
+  finishProviderSignIn: (url: string) => Promise<void>;
+  cancelProviderSignIn: () => void;
+  /** True while the desktop waits for the browser to return. */
+  cloudBrowser: boolean;
+  /** Set when records already on this device need a decision before joining an account. */
+  cloudChoice: { email: string | null } | null;
+  adoptCloudData: (choice: 'join' | 'separate' | 'cancel') => Promise<void>;
   signOutCloud: () => Promise<void>;
   resolveCloudConflict: (id: string, choice: 'local' | 'remote') => Promise<void>;
 };
@@ -67,6 +84,8 @@ export function Providers({ children }: { children: ReactNode }) {
   const [cloud, setCloud] = useState<CloudStatus | null>(null);
   const [cloudBusy, setCloudBusy] = useState(false);
   const [cloudError, setCloudError] = useState('');
+  const [cloudBrowser, setCloudBrowser] = useState(false);
+  const [cloudChoice, setCloudChoice] = useState<{ email: string | null } | null>(null);
   const cloudTask = useRef<Promise<void> | null>(null);
   const cloudGeneration = useRef(0);
   const notify = useCallback((text: string, error = false) => {
@@ -109,19 +128,19 @@ export function Providers({ children }: { children: ReactNode }) {
   // All calls share one promise, including manual actions and foreground retries.
   // A generation change prevents a completed old request from restoring signed-out UI.
   const syncCloud = useCallback(
-    (statusOnly = false) =>
+    (statusOnly = false, force = false, onlyIfPending = false) =>
       runSingleFlight(cloudTask, async () => {
         const generation = cloudGeneration.current;
         try {
           const status = await api.cloudStatus();
           if (generation !== cloudGeneration.current) return;
           setCloud(status);
-          if (!status.signedIn || statusOnly) return;
+          if (!status.signedIn || statusOnly || (onlyIfPending && !status.pending)) return;
           setCloudBusy(true);
-          const result = await api.cloudSync();
+          const result = await api.cloudSync(force);
           if (generation !== cloudGeneration.current) return;
           setCloud(result);
-          setCloudError(result.error ?? '');
+          setCloudError('');
           await refresh();
           window.dispatchEvent(new Event('folio:cloud-synced'));
         } catch (error) {
@@ -132,28 +151,78 @@ export function Providers({ children }: { children: ReactNode }) {
       }),
     [refresh],
   );
-  const signInCloud = useCallback(
-    async (email: string, secret: string, method: 'password' | 'code' = 'password') => {
+  // Every way of signing in ends here. Changing account reloads the window so
+  // nothing the previous account loaded stays on screen or in memory.
+  const applyOutcome = useCallback(
+    async (result: CloudOutcome | null) => {
+      if (!result) return;
+      setCloudBrowser(false);
+      if (result.outcome === 'chooseData') {
+        setCloudChoice({ email: result.email });
+        return;
+      }
+      setCloudChoice(null);
+      setCloud(result.status);
+      if (result.outcome === 'switched') {
+        if ('__folio' in window) {
+          await refresh();
+          window.dispatchEvent(new Event('folio:cloud-synced'));
+        } else window.location.reload();
+        return;
+      }
+      if (result.outcome === 'cancelled') return;
+      // Finish any stale poll before starting the newly authenticated session.
+      await cloudTask.current;
+      await syncCloud('__folio' in window, true);
+    },
+    [refresh, syncCloud],
+  );
+  const authenticate = useCallback(
+    async (attempt: () => Promise<CloudOutcome | null>) => {
       const generation = ++cloudGeneration.current;
       setCloudBusy(true);
       setCloudError('');
+      let result: CloudOutcome | null;
       try {
-        const status = await (method === 'code'
-          ? api.cloudVerifyCode(email, secret)
-          : api.cloudSignIn(email, secret));
-        if (generation !== cloudGeneration.current) return;
-        setCloud(status);
+        result = await attempt();
       } catch (error) {
         if (generation === cloudGeneration.current) setCloudError(errorMessage(error));
         throw error;
       } finally {
         if (generation === cloudGeneration.current) setCloudBusy(false);
       }
-      // Finish any stale poll before starting the newly authenticated session.
-      await cloudTask.current;
-      await syncCloud();
+      if (generation === cloudGeneration.current) await applyOutcome(result);
     },
-    [syncCloud],
+    [applyOutcome],
+  );
+  const signInCloud = useCallback(
+    (email: string, secret: string, method: 'password' | 'code' = 'password') =>
+      authenticate(() =>
+        method === 'code' ? api.cloudVerifyCode(email, secret) : api.cloudSignIn(email, secret),
+      ),
+    [authenticate],
+  );
+  const signInWithProvider = useCallback(
+    (provider: CloudProvider, link = false) =>
+      authenticate(async () => {
+        const result = await api.cloudOauthStart(provider, link);
+        // The desktop continues in the browser and returns through a deep link.
+        if (!result || !('outcome' in result)) setCloudBrowser(true);
+        return result && 'outcome' in result ? result : null;
+      }),
+    [authenticate],
+  );
+  const finishProviderSignIn = useCallback(
+    (url: string) => authenticate(() => api.cloudOauthFinish(url)).catch(() => undefined),
+    [authenticate],
+  );
+  const cancelProviderSignIn = useCallback(() => {
+    setCloudBrowser(false);
+    void api.cloudOauthCancel().catch(() => undefined);
+  }, []);
+  const adoptCloudData = useCallback(
+    (choice: 'join' | 'separate' | 'cancel') => authenticate(() => api.cloudAdopt(choice)),
+    [authenticate],
   );
   const signOutCloud = useCallback(async () => {
     const generation = ++cloudGeneration.current;
@@ -198,6 +267,20 @@ export function Providers({ children }: { children: ReactNode }) {
     return startForegroundSync(() => syncCloud('__folio' in window));
   }, [syncCloud]);
   useEffect(() => {
+    if (!desktop) return;
+    // Upload shortly after an edit instead of waiting for the next poll.
+    let timer: number | undefined;
+    const changed = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => void syncCloud('__folio' in window, false, true), 2000);
+    };
+    window.addEventListener('folio:changed', changed);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('folio:changed', changed);
+    };
+  }, [syncCloud]);
+  useEffect(() => {
     const media = window.matchMedia('(prefers-color-scheme: dark)');
     const apply = () =>
       (document.documentElement.dataset.theme =
@@ -224,6 +307,12 @@ export function Providers({ children }: { children: ReactNode }) {
         cloudError,
         syncCloud,
         signInCloud,
+        signInWithProvider,
+        finishProviderSignIn,
+        cancelProviderSignIn,
+        cloudBrowser,
+        cloudChoice,
+        adoptCloudData,
         signOutCloud,
         resolveCloudConflict,
       }}

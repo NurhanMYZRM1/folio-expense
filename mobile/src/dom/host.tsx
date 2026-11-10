@@ -32,11 +32,16 @@ function installBridge(live: { current: FolioHostProps }) {
 }
 
 function RefreshOnChange({ version }: { version: number }) {
-  const { refresh } = useWorkspace();
+  const { refresh, syncCloud } = useWorkspace();
   const first = useRef(version);
   useEffect(() => {
-    if (version !== first.current) void refresh();
-  }, [version, refresh]);
+    if (version === first.current) return;
+    // Records, finance data and the account shown all follow the native core,
+    // including after another screen signed in to a different account.
+    void refresh();
+    void syncCloud(true);
+    window.dispatchEvent(new Event("folio:cloud-synced"));
+  }, [version, refresh, syncCloud]);
   return null;
 }
 
