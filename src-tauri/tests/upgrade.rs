@@ -196,7 +196,7 @@ fn full_data_export_round_trips_the_live_database_receipts_and_reports() {
     assert!(dispatch(&s, "open_data_export", json!({"id": "../other"})).is_err());
     let mut zip = zip::ZipArchive::new(fs::File::open(path).unwrap()).unwrap();
     assert_eq!(zip.len(), export["files"].as_u64().unwrap() as usize);
-    let names: Vec<_> = zip.file_names().map(str::to_owned).collect();
+    let names: Vec<_> = zip.file_names().map(|n| n.unwrap().into_owned()).collect();
     assert!(!names.iter().any(|n| n.starts_with("cache/")
         || n.starts_with("logs/")
         || n.starts_with("exports/data/")));

@@ -172,7 +172,7 @@ test('offline receipt → real Rust/SQLite → OCR → review → claim → PDF 
     await page.goto(`/#/claims/${claim.id}`);
     await page.getByRole('button', { name: 'Mark submitted' }).click();
     await expect(
-      page.getByText('Claim marked as submitted locally. No data was sent.'),
+      page.getByText('Claim marked as submitted. No report was sent to anyone.'),
     ).toBeVisible();
     await expect(page.getByText('Saved locally · snapshot of claim at export time')).toBeVisible();
     await expect(page.getByText('Outdated', { exact: false })).toHaveCount(0);

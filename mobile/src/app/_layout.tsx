@@ -2,7 +2,7 @@ import { Stack, ThemeProvider } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect, useState } from "react";
 import { AppState, ScrollView, Text, useColorScheme } from "react-native";
-import { dataRoot, errorText, openCore, useDataVersion } from "~/core/folio";
+import { dataRoot, errorText, openCore, startCloudSync, useDataVersion } from "~/core/folio";
 import { syncReminders } from "~/core/reminders";
 import { startJobRunner } from "~/core/jobs";
 import { notify, setProcessing, StatusOverlay } from "~/native/status";
@@ -25,14 +25,18 @@ export default function RootLayout() {
 
   useEffect(() => {
     let stop: (() => void) | undefined;
+    let closed = false;
     openCore()
       .then(() => {
+        if (closed) return;
         setState("ready");
-        stop = startJobRunner(setProcessing, notify);
+        const stopJobs = startJobRunner(setProcessing, notify);
+        const stopCloud = startCloudSync();
+        stop = () => { stopJobs(); stopCloud(); };
       })
-      .catch((e) => setState(errorText(e)))
+      .catch((e) => { if (!closed) setState(errorText(e)); })
       .finally(() => void SplashScreen.hideAsync());
-    return () => stop?.();
+    return () => { closed = true; stop?.(); };
   }, []);
 
   if (state === "opening") return null;

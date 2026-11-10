@@ -33,6 +33,16 @@ pub fn dispatch(s: &AppService, command: &str, a: Value) -> Result<Value> {
     let id = || a["id"].as_str().unwrap_or("");
     let token = || a["token"].as_str().unwrap_or("");
     match command {
+        "cloud_status" => out!(s.cloud_status()),
+        "cloud_sync" => out!(s.cloud_sync()),
+        "cloud_sign_in" => out!(s.cloud_sign_in(text_arg!("email"), text_arg!("password"))),
+        "cloud_sign_out" => out!(s.cloud_sign_out()),
+        "cloud_request_code" => out!(s.cloud_request_code(text_arg!("email"))),
+        "cloud_verify_code" => out!(s.cloud_verify_code(text_arg!("email"), text_arg!("code"))),
+        "cloud_conflicts" => out!(s.cloud_conflicts()),
+        "cloud_resolve_conflict" => {
+            out!(s.cloud_resolve_conflict(text_arg!("id"), text_arg!("choice")))
+        }
         "list_expenses" => out!(s.expenses()),
         "get_expense" => out!(s.expense(id())),
         "create_expense" => out!(s.create_expense()),

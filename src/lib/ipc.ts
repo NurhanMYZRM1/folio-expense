@@ -58,6 +58,20 @@ import type {
   ReceiptContent,
   Settings,
 } from '../bindings/generated';
+export type CloudStatus = {
+  signedIn: boolean;
+  email: string | null;
+  pending: number;
+  conflicts: number;
+  lastSync: string | null;
+  error: string | null;
+};
+export type CloudConflict = {
+  id: string;
+  entity: string;
+  local: unknown;
+  remote: unknown;
+};
 export const desktop = isTauri();
 function call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   if (!desktop && !('__FOLIO_TEST__' in window))
@@ -68,6 +82,17 @@ function call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   return invoke<T>(command, args);
 }
 export const api = {
+  cloudStatus: () => call<CloudStatus>('cloud_status'),
+  cloudSignIn: (email: string, password: string) =>
+    call<CloudStatus>('cloud_sign_in', { email, password }),
+  cloudRequestCode: (email: string) => call<CloudStatus>('cloud_request_code', { email }),
+  cloudVerifyCode: (email: string, code: string) =>
+    call<CloudStatus>('cloud_verify_code', { email, code }),
+  cloudSignOut: () => call<CloudStatus>('cloud_sign_out'),
+  cloudSync: () => call<CloudStatus>('cloud_sync'),
+  cloudConflicts: () => call<CloudConflict[]>('cloud_conflicts'),
+  cloudResolveConflict: (id: string, choice: 'local' | 'remote') =>
+    call<CloudStatus>('cloud_resolve_conflict', { id, choice }),
   exportAllData: () => call<DataExport>('export_all_data'),
   openDataExport: (id: string) => call<void>('open_data_export', { id }),
   expenses: () => call<Expense[]>('list_expenses'),

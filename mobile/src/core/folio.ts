@@ -1,11 +1,13 @@
 // The Rust core (../src-tauri) through the FolioCore native module. Commands
 // and arguments are exactly the desktop's Tauri commands (src/lib/ipc.ts).
 import { useSyncExternalStore } from "react";
+import { AppState } from "react-native";
 import FolioCore from "../../modules/folio-core";
 import type { AppError } from "@folio/bindings/generated";
 
 /** Commands that only read; anything else may change records. */
 const READS = new Set([
+  "cloud_status", "cloud_conflicts", "cloud_request_code",
   "list_expenses", "get_expense", "read_receipt", "read_thumbnail", "list_claims", "get_claim",
   "get_settings", "app_info", "list_jobs", "export_snapshot", "open_export", "open_csv_export",
   "open_xlsx_export", "open_data_export",
@@ -75,4 +77,28 @@ export async function call<T>(command: string, args: Record<string, unknown> = {
 export function errorText(e: unknown): string {
   if (e && typeof e === "object" && "message" in e) return String((e as { message: unknown }).message);
   return String(e);
+}
+
+/** Native screens also sync when no shared DOM screen is mounted. */
+export function startCloudSync(): () => void {
+  let stopped = false;
+  let running = false;
+  const run = async () => {
+    if (stopped || running || AppState.currentState !== "active") return;
+    running = true;
+    try {
+      const status = await call<{ signedIn: boolean }>("cloud_status");
+      if (!stopped && status.signedIn) await call("cloud_sync");
+    } catch {
+      // The native core persists sync errors; Settings shows them on demand.
+    } finally {
+      running = false;
+    }
+  };
+  void run();
+  const timer = setInterval(() => void run(), 20_000);
+  const listener = AppState.addEventListener("change", state => {
+    if (state === "active") void run();
+  });
+  return () => { stopped = true; clearInterval(timer); listener.remove(); };
 }

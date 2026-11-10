@@ -1,5 +1,6 @@
 pub mod business;
 pub mod claim_service;
+pub mod cloud_sync;
 pub mod csv_export;
 pub mod data_export;
 pub mod exchange_rates;
@@ -25,6 +26,7 @@ use std::{
 };
 pub struct AppService {
     pub(crate) db: Mutex<Connection>,
+    pub(crate) cloud_lock: Mutex<Option<cloud_sync::Access>>,
     pub paths: AppPaths,
     pub(crate) secrets: Arc<dyn SecretStore>,
     pub(crate) rates: Arc<dyn exchange_rates::RateSource>,
@@ -37,12 +39,14 @@ impl AppService {
         let db = db::open(&paths.resolve("database/expenses.sqlite")?)?;
         let service = Self {
             db: Mutex::new(db),
+            cloud_lock: Mutex::new(None),
             paths,
             secrets,
             rates: Arc::new(exchange_rates::FrankfurterRates),
             online_backoff: Mutex::default(),
         };
         service.initialize_finance()?;
+        service.initialize_cloud()?;
         service.recover_jobs()?;
         service.recover_storage()?;
         Ok(service)

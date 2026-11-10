@@ -1,3 +1,4 @@
+import { runSingleFlight, startForegroundSync } from '../lib/cloudSync';
 import { FinanceProvider } from '../features/finance/shared';
 import {
   createContext,
@@ -9,7 +10,7 @@ import {
   type ReactNode,
 } from 'react';
 import type { Claim, Expense, Job, Settings } from '../bindings/generated';
-import { api, desktop } from '../lib/ipc';
+import { api, desktop, type CloudStatus } from '../lib/ipc';
 import { errorMessage } from '../lib/errors';
 import { X, AlertCircle } from 'lucide-react';
 import { startJobRunner } from '../lib/jobs';
@@ -44,6 +45,13 @@ type Store = {
   notify: (message: string, error?: boolean) => void;
   setSettings: (s: Settings) => void;
   processing: string | null;
+  cloud: CloudStatus | null;
+  cloudBusy: boolean;
+  cloudError: string;
+  syncCloud: (statusOnly?: boolean) => Promise<void>;
+  signInCloud: (email: string, secret: string, method?: 'password' | 'code') => Promise<void>;
+  signOutCloud: () => Promise<void>;
+  resolveCloudConflict: (id: string, choice: 'local' | 'remote') => Promise<void>;
 };
 const Context = createContext<Store | null>(null);
 export function Providers({ children }: { children: ReactNode }) {
@@ -56,6 +64,11 @@ export function Providers({ children }: { children: ReactNode }) {
   const [notices, setNotices] = useState<Notice[]>([]),
     [processing, setProcessing] = useState<string | null>(null);
   const request = useRef(0);
+  const [cloud, setCloud] = useState<CloudStatus | null>(null);
+  const [cloudBusy, setCloudBusy] = useState(false);
+  const [cloudError, setCloudError] = useState('');
+  const cloudTask = useRef<Promise<void> | null>(null);
+  const cloudGeneration = useRef(0);
   const notify = useCallback((text: string, error = false) => {
     const id = Date.now() + Math.random();
     setNotices((n) => [...n.slice(-3), { id, text, error }]);
@@ -93,6 +106,97 @@ export function Providers({ children }: { children: ReactNode }) {
     if (!desktop) return;
     return startJobRunner({ refresh, notify, progress: setProcessing });
   }, [refresh, notify]);
+  // All calls share one promise, including manual actions and foreground retries.
+  // A generation change prevents a completed old request from restoring signed-out UI.
+  const syncCloud = useCallback(
+    (statusOnly = false) =>
+      runSingleFlight(cloudTask, async () => {
+        const generation = cloudGeneration.current;
+        try {
+          const status = await api.cloudStatus();
+          if (generation !== cloudGeneration.current) return;
+          setCloud(status);
+          if (!status.signedIn || statusOnly) return;
+          setCloudBusy(true);
+          const result = await api.cloudSync();
+          if (generation !== cloudGeneration.current) return;
+          setCloud(result);
+          setCloudError(result.error ?? '');
+          await refresh();
+          window.dispatchEvent(new Event('folio:cloud-synced'));
+        } catch (error) {
+          if (generation === cloudGeneration.current) setCloudError(errorMessage(error));
+        } finally {
+          if (generation === cloudGeneration.current) setCloudBusy(false);
+        }
+      }),
+    [refresh],
+  );
+  const signInCloud = useCallback(
+    async (email: string, secret: string, method: 'password' | 'code' = 'password') => {
+      const generation = ++cloudGeneration.current;
+      setCloudBusy(true);
+      setCloudError('');
+      try {
+        const status = await (method === 'code'
+          ? api.cloudVerifyCode(email, secret)
+          : api.cloudSignIn(email, secret));
+        if (generation !== cloudGeneration.current) return;
+        setCloud(status);
+      } catch (error) {
+        if (generation === cloudGeneration.current) setCloudError(errorMessage(error));
+        throw error;
+      } finally {
+        if (generation === cloudGeneration.current) setCloudBusy(false);
+      }
+      // Finish any stale poll before starting the newly authenticated session.
+      await cloudTask.current;
+      await syncCloud();
+    },
+    [syncCloud],
+  );
+  const signOutCloud = useCallback(async () => {
+    const generation = ++cloudGeneration.current;
+    setCloudBusy(true);
+    try {
+      const status = await api.cloudSignOut();
+      if (generation !== cloudGeneration.current) return;
+      setCloud(status);
+      setCloudError('');
+    } catch (error) {
+      if (generation === cloudGeneration.current) setCloudError(errorMessage(error));
+      throw error;
+    } finally {
+      if (generation === cloudGeneration.current) setCloudBusy(false);
+    }
+  }, []);
+  const resolveCloudConflict = useCallback(
+    async (id: string, choice: 'local' | 'remote') => {
+      // Let the current pull finish so its result cannot overwrite a resolution.
+      await cloudTask.current;
+      const generation = cloudGeneration.current;
+      setCloudBusy(true);
+      try {
+        const status = await api.cloudResolveConflict(id, choice);
+        if (generation !== cloudGeneration.current) return;
+        setCloud(status);
+        setCloudError('');
+        await refresh();
+        window.dispatchEvent(new Event('folio:cloud-synced'));
+      } catch (error) {
+        if (generation === cloudGeneration.current) setCloudError(errorMessage(error));
+        throw error;
+      } finally {
+        if (generation === cloudGeneration.current) setCloudBusy(false);
+      }
+    },
+    [refresh],
+  );
+  useEffect(() => {
+    if (!desktop) return;
+    // Phones run one native sync loop (mobile/src/core/folio.ts); each embedded screen only refreshes status.
+    return startForegroundSync(() => syncCloud('__folio' in window));
+  }, [syncCloud]);
   useEffect(() => {
     const media = window.matchMedia('(prefers-color-scheme: dark)');
     const apply = () =>
@@ -115,6 +219,13 @@ export function Providers({ children }: { children: ReactNode }) {
         notify,
         setSettings,
         processing,
+        cloud,
+        cloudBusy,
+        cloudError,
+        syncCloud,
+        signInCloud,
+        signOutCloud,
+        resolveCloudConflict,
       }}
     >
       <FinanceProvider>{children}</FinanceProvider>

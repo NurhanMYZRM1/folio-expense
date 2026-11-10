@@ -106,6 +106,14 @@ handler_with_core_commands!(
         jobs::complete_pdf
     ],
     [
+        cloud_status,
+        cloud_sync,
+        cloud_sign_in,
+        cloud_sign_out,
+        cloud_request_code,
+        cloud_verify_code,
+        cloud_conflicts,
+        cloud_resolve_conflict,
         // Ledger (services::finance)
         list_workspaces,
         save_workspace,

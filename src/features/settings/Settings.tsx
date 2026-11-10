@@ -1,3 +1,4 @@
+import { CloudSync } from './CloudSync';
 import { PaymentDetection } from '../finance/PaymentDetection';
 import { DataExport } from './DataExport';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
@@ -98,6 +99,7 @@ export function Settings() {
         title="Settings"
         subtitle="Make this workspace yours. You’re in control of where your data goes."
       />
+      <CloudSync />
       <form onSubmit={save} className="settings-layout">
         <div className="settings-save" role="region" aria-label="Preferences actions">
           <span>
@@ -170,7 +172,7 @@ export function Settings() {
               />
               <Toggle
                 label="Convert foreign receipts to my default currency"
-                detail="Uses the European Central Bank's published rate for each receipt's date. Only the two currency codes and the date are sent online; receipts never leave this device."
+                detail="Uses the European Central Bank's published rate for each receipt's date. Only the two currency codes and the date are sent to the exchange-rate service."
                 checked={form.currencyConversionEnabled}
                 onChange={(v) => update('currencyConversionEnabled', v)}
               />
@@ -334,8 +336,8 @@ export function Settings() {
             </span>
             <h2>Local comes first.</h2>
             <p>
-              Your computer is the source of truth. Receipts, expenses, claims, and audit history
-              live here.
+              Your work is saved on this device first. When you sign into cloud sync, records and
+              receipt files are also synchronized with your private cloud workspace.
             </p>
             <ul>
               <li>

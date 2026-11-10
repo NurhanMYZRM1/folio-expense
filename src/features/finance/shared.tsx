@@ -63,6 +63,11 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void Promise.resolve().then(refreshFinance);
   }, [refreshFinance]);
+  useEffect(() => {
+    const sync = () => void refreshFinance();
+    window.addEventListener('folio:cloud-synced', sync);
+    return () => window.removeEventListener('folio:cloud-synced', sync);
+  }, [refreshFinance]);
   return (
     <FinanceContext.Provider
       value={{

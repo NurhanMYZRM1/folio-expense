@@ -57,7 +57,7 @@ If an export directory is configured in Settings, exporting a CSV also copies a 
 
 For a data export or backup, open **Settings → Export all my data → Create data archive**. The ZIP contains all database tables as JSON, a consistent SQLite snapshot, original receipts and existing reports, with restore instructions inside. Committed WAL changes are included. Cache files, logs, previous data archives and OS-vault credentials are excluded. The archive is not encrypted; save it somewhere protected. On desktop, **Open archive location / share** opens its folder; the phone bridge uses the native share sheet (not yet verified on a device).
 
-To restore, quit Folio and keep a backup of the current data folder. Extract the archive's `database/`, `receipts/` and `exports/` into an empty Folio data folder, then open this version of Folio or newer. Do not overlay a running or existing database/WAL. API credentials must be configured again. You can also close Folio and copy the entire `expense-app` directory, including any SQLite WAL files. Cloud sync is not implemented or required.
+To restore, quit Folio and keep a backup of the current data folder. Extract the archive's `database/`, `receipts/` and `exports/` into an empty Folio data folder, then open this version of Folio or newer. Do not overlay a running or existing database/WAL. API credentials must be configured again. You can also close Folio and copy the entire `expense-app` directory, including any SQLite WAL files. Optional cloud synchronization is available after signing in under Settings → Cloud sync; keep independent backups because deletions synchronize too.
 
 Currency conversion is on by default and can be turned off in Settings. It downloads published rates from Frankfurter (https://frankfurter.dev, European Central Bank reference rates, free and without an account); each request contains only two currency codes and a date, never receipt content. Downloaded rates are kept in the local database, so each is fetched once. ECB does not publish BHD, KWD or OMR rates; such receipts keep their own currency.
 
@@ -86,15 +86,21 @@ For unattended macOS packaging, use `CI=true npm run package` to skip Finder win
 
 Unsigned builds are for local evaluation. Public distribution requires your Apple Developer signing/notarization credentials and Windows code-signing identity. No signing credentials or certificates are included.
 
-## Cloud schema security checks
+## Automatic cloud sync
 
-The optional sync server currently has a schema and SQL authorization functions; sign-in, the sync client and team UI are still missing. With Docker running, verify all server migrations and the security suite in an isolated Postgres 17 container:
+Settings → Cloud sync connects this installation to the imported owner's Supabase account. Request an email sign-in code/link, then paste the code or copy the link into Folio without opening it. After sign-in, durable record changes and receipt originals/derivatives upload automatically while the app is open. Remote changes download on launch, foreground resume and approximately every 20 seconds. Offline edits remain local until connectivity returns. Sign out to pause transfers.
+
+Conflicting edits retain both versions for review in Settings. Receipt hashes are verified and downloaded files are written atomically. Credentials and device-specific settings stay local. Generated reports remain local and can be regenerated on another device. This release is bound to the imported owner account; it does not provide account switching or team sharing. Read [the sync operating notes](docs/AUTOMATIC_SYNC.md) for recovery, limits and verification.
+
+The shared native Rust core implements the same protocol for desktop and mobile. Native changes require a rebuilt mobile binary; an OTA-only update is insufficient. The iOS device/simulator XCFramework can be rebuilt with `cd mobile && npm run rust:ios`.
+
+Run the full-domain SQL/RLS suite in a disposable PostgreSQL 17 Docker container:
 
 ```sh
-python3 supabase/tests/run-security.py
+python3 supabase/tests/run-cloud-security.py
 ```
 
-The runner uses synthetic auth/storage schemas, opens no ports, removes its container on exit, and never uses real accounts or sends invitations. It covers retries, tombstones, conflicts, workspace isolation, viewer and removed-member denial, invitation expiry/revocation/single use, and join rate limiting. This validates SQL and row-level security; it does not verify the Supabase Auth, PostgREST or Storage HTTP APIs. Full local Supabase setup and client integration remain to be completed. No hosted project is configured.
+The earlier `run-security.py` suite covers the separate, undeployed ledger-sharing draft. Do not deploy that draft over the full-domain hosted schema.
 
 ## Design and delivery notes
 
@@ -112,4 +118,4 @@ The runner uses synthetic auth/storage schemas, opens no ports, removes its cont
 - Durable jobs run while the desktop app is open and recover on restart. There is no separate background daemon, unlimited retry loop, or cloud service.
 - The expense register paginates displayed rows; metadata is loaded into memory for filtering. Very large deployments should move filtering/aggregation to paged SQL queries. Full receipt images are never loaded in table rows.
 - Deep links are optional convenience links. Every report also includes filenames, receipt IDs, and optionally portable receipt pages because PDF readers differ in custom-scheme support.
-- No accounts, sync, collaboration, reimbursements, accounting integration, SSO, policy engine, or approval chain is implemented.
+- Cloud sync supports the imported owner account. Collaboration, reimbursements, accounting integration, SSO, policy engines and approval chains are not implemented.
