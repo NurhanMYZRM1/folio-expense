@@ -5,6 +5,9 @@ import path from 'node:path';
 import { PDFDocument, PDFName, PDFArray, StandardFonts } from 'pdf-lib';
 import { RustBridge, installBridge } from '../bridge';
 import type { Expense, Claim, Job, CsvExport } from '../../src/bindings/generated';
+// The app's own dev server; everything else counts as going online.
+const APP_ORIGIN = `http://127.0.0.1:${process.env.FOLIO_E2E_PORT ?? '1420'}`;
+
 test('offline receipt → real Rust/SQLite → OCR → review → claim → PDF → reopen', async ({
   page,
 }, testInfo) => {
@@ -55,7 +58,7 @@ test('offline receipt → real Rust/SQLite → OCR → review → claim → PDF 
   const external: string[] = [];
   await page.route('**/*', (route) => {
     if (
-      !route.request().url().startsWith('http://127.0.0.1:1420') &&
+      !route.request().url().startsWith(APP_ORIGIN) &&
       !route.request().url().startsWith('data:')
     ) {
       external.push(route.request().url());
@@ -221,7 +224,7 @@ test('multi-page PDF receipt renders and extracts entirely offline', async ({ pa
   const external: string[] = [];
   await page.route('**/*', (route) => {
     if (
-      !route.request().url().startsWith('http://127.0.0.1:1420') &&
+      !route.request().url().startsWith(APP_ORIGIN) &&
       !route.request().url().startsWith('data:')
     ) {
       external.push(route.request().url());

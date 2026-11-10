@@ -1140,6 +1140,13 @@ h1 {
   display: grid;
   place-items: center;
 }
+.recent-claims .claim-icon {
+  flex: none;
+}
+.recent-claims > a > div:not(.claim-icon) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .recent-claims strong {
   font-size: 13px;
   display: block;
@@ -2140,6 +2147,8 @@ h1 {
 }
 .toast > span {
   flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .toast.error {
   border-color: color-mix(in srgb, var(--warning) 30%, var(--border));
@@ -2542,29 +2551,40 @@ body {
 /* Modal */
 .modal-root {
   position: fixed;
-  inset: 0;
+  /* The visible area: a phone keyboard covers part of the page without
+     resizing it (see trackVisibleArea in components/motion.tsx). */
+  top: var(--visible-top, 0px);
+  left: 0;
+  right: 0;
+  height: var(--visible-height, 100dvh);
   z-index: 300;
   display: grid;
   place-items: center;
   padding: 24px;
 }
 .modal-backdrop {
-  position: absolute;
+  position: fixed;
   inset: 0;
   background: rgb(12 20 24 / 0.32);
   -webkit-backdrop-filter: blur(10px) saturate(140%);
   backdrop-filter: blur(10px) saturate(140%);
 }
 .modal {
+  --modal-pad-bottom: 24px;
   position: relative;
   width: min(440px, 100%);
+  /* Never taller than what is visible; long content scrolls inside. */
+  max-height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  overflow-wrap: anywhere;
   background: var(--surface);
   border: 1px solid var(--card-border);
   border-radius: var(--r-lg);
   box-shadow:
     0 8px 20px rgb(0 0 0 / 0.12),
     0 24px 48px rgb(0 0 0 / 0.16);
-  padding: 24px;
+  padding: 24px 24px var(--modal-pad-bottom);
 }
 .modal-icon {
   width: 48px;
@@ -2590,7 +2610,13 @@ body {
   display: flex;
   justify-content: flex-end;
   gap: 12px;
-  margin-top: 24px;
+  /* Stays at the bottom edge while the content above scrolls, so the
+     choices are always reachable. The margins cover the dialog's own padding. */
+  position: sticky;
+  bottom: calc(-1 * var(--modal-pad-bottom));
+  margin: 12px -24px calc(-1 * var(--modal-pad-bottom));
+  padding: 12px 24px var(--modal-pad-bottom);
+  background: var(--surface);
 }
 /* Toasts */
 .toast > svg {
@@ -2979,15 +3005,26 @@ body {
     padding: 0;
   }
   .modal {
+    --modal-pad-bottom: calc(24px + env(safe-area-inset-bottom));
     width: 100%;
     border-radius: var(--r-lg) var(--r-lg) 0 0;
-    padding-bottom: calc(24px + env(safe-area-inset-bottom));
+  }
+  /* The keyboard already covers the home indicator. */
+  :root[data-keyboard] .modal {
+    --modal-pad-bottom: 24px;
   }
   .modal-actions {
     flex-direction: column-reverse;
   }
-  .modal-actions .button {
+  .modal-actions .button,
+  .modal-actions .text-button {
     width: 100%;
+    /* Long or enlarged labels wrap instead of pushing the dialog off screen. */
+    min-width: 0;
+    height: auto;
+    min-height: var(--control-h);
+    padding-block: 8px;
+    white-space: normal;
   }
   .import-privacy {
     flex-wrap: wrap;
@@ -3254,9 +3291,6 @@ progress {
 }
 .modal:has(.finance-dialog-form) {
   width: min(680px, 100%);
-  max-height: calc(100dvh - 48px);
-  overflow-y: auto;
-  overscroll-behavior: contain;
 }
 .finance-business-actions {
   display: flex;

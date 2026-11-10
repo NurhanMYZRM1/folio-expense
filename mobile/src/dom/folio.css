@@ -88,9 +88,54 @@ input[type="month"] {
   max-width: 100%;
 }
 
-/* Toasts sit above the home indicator. */
+/* Notices sit above the home indicator, or above the keyboard when it is open,
+   and scroll rather than run off the top when several long ones stack up. */
 .toasts {
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 16px) !important;
+  bottom: calc(max(env(safe-area-inset-bottom, 0px), var(--keyboard, 0px)) + 16px) !important;
   left: 16px !important;
   right: 16px !important;
+  width: auto !important;
+  transform: none !important;
+  max-height: calc(var(--visible-height, 100dvh) - 32px);
+  overflow-y: auto;
+}
+
+/* Long file names, server messages and codes wrap instead of widening the page. */
+.mobile-page,
+.modal {
+  overflow-wrap: anywhere;
+}
+.mobile-page .inline-error,
+.mobile-page .notice-box {
+  min-width: 0;
+}
+.mobile-page .credential-input {
+  flex-wrap: wrap;
+}
+
+/* A claim row has no room for the desktop's fixed amount column: the amount
+   and status drop to their own line under a long title. */
+.mobile-page .recent-claims > a {
+  flex-wrap: wrap;
+}
+.mobile-page .recent-claims > a > div:not(.claim-icon) {
+  flex: 1 1 0;
+}
+.mobile-page .recent-claims b {
+  width: auto;
+  margin: 0;
+}
+
+/* Amounts stay whole where there is room and wrap after the currency where
+   there is not; the narrowest phones show one tile per row. */
+.mobile-page .metric-value {
+  white-space: normal;
+}
+.mobile-page .metric-bottom {
+  flex-wrap: wrap;
+}
+@media (max-width: 359px) {
+  .mobile-page .metrics-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
 }

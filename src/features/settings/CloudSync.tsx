@@ -224,9 +224,9 @@ export function CloudSync() {
     <Panel title="Cloud sync" action={<Cloud size={17} />}>
       <div className="settings-fields">
         <p className="field-help">
-          Sign in to automatically upload records and receipt files to your private Supabase
-          workspace and receive changes from your other devices. Local work remains available
-          offline. Sync runs while Folio is open and resumes when you return.
+          Sign in with the same account on each device to keep records and receipt files in sync
+          through your private cloud workspace. Work stays available offline; sync runs while
+          Folio is open and catches up when you return.
         </p>
         {cloud?.signedIn ? (
           <>
@@ -373,10 +373,6 @@ export function CloudSync() {
                   </button>
                 )}
               </div>
-              <p className="field-help">
-                Use the same account on each device to see the same records. Signing in turns on
-                automatic uploads of existing and new records and receipt files.
-              </p>
             </form>
           </>
         )}

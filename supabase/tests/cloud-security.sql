@@ -50,6 +50,20 @@ select pg_temp.assert_true(jsonb_array_length(public.folio_sync_pull(0,200)->'re
 select pg_temp.assert_true((select count(*)=0 from public.workspaces),'other owner no rows');
 select pg_temp.assert_true(jsonb_array_length(public.folio_assets())=0,'other owner no manifest');
 select pg_temp.assert_true((select count(*)=0 from storage.objects),'other owner no objects');
+-- A second ordinary account using the first account's record and file identities
+-- writes only its own data: nothing of the first account is read, changed or claimed.
+select public.folio_sync_push('[{"changeId":"00000000-0000-0000-0000-000000000040","entity":"workspaces","key":{"id":"baseline"},"baseRevision":0,"operation":"upsert","data":{"id":"baseline","kind":"personal","name":"Second account","base_currency":"MYR","created_at":"2026-11-05","updated_at":"2026-11-05","version":1,"sync_state":"local_only"}}]') as result \gset other_
+select pg_temp.assert_true((:'other_result'::jsonb->0->>'status')='applied' and (:'other_result'::jsonb->0->>'revision')::bigint=1,'same record ID starts a separate record for the other account');
+select pg_temp.assert_true((select count(*)=1 and min(name)='Second account' from public.workspaces),'other account sees only its own record');
+do $$begin
+ begin perform public.folio_asset_register('receipt-test','receipts/receipt-test/original.jpg','aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/receipt-test/'||repeat('a',64)||'.jpg',repeat('a',64),10); raise exception 'Foreign object path accepted'; exception when raise_exception then if sqlerrm='Foreign object path accepted' then raise;end if;end;
+ begin perform public.folio_asset_register('receipt-test','receipts/receipt-test/original.jpg','bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb/receipt-test/'||repeat('a',64)||'.jpg',repeat('a',64),10); raise exception 'Foreign receipt accepted'; exception when raise_exception then if sqlerrm='Foreign receipt accepted' then raise;end if;end;
+end $$;
+select pg_temp.assert_true(jsonb_array_length(public.folio_assets())=0,'other account gained no file manifest');
+select set_config('request.jwt.claim.sub','aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',true);
+select pg_temp.assert_true((select name='Updated' from public.workspaces where id='baseline'),'first account record untouched by the other account');
+select pg_temp.assert_true(jsonb_array_length(public.folio_assets())=1,'first account manifest untouched');
+select pg_temp.assert_true(not exists(select 1 from jsonb_array_elements(public.folio_sync_pull(0,500)->'records') r where r->'data'->>'name'='Second account'),'first account feed carries nothing of the other account');
 reset role;
 select pg_temp.assert_true(not has_function_privilege('anon','public.folio_sync_push(jsonb)','execute'),'anon no push');
 select pg_temp.assert_true(not has_table_privilege('authenticated','folio_sync.operations','select'),'internal operation data unavailable');

@@ -21,7 +21,7 @@ import { errorMessage } from '../lib/errors';
 import { X, AlertCircle } from 'lucide-react';
 import { startJobRunner } from '../lib/jobs';
 import { AnimatePresence, motion, useIsPresent } from 'motion/react';
-import { SuccessCheck, spring } from '../components/motion';
+import { SuccessCheck, spring, trackVisibleArea } from '../components/motion';
 export const defaultSettings: Settings = {
   theme: 'system',
   defaultCurrency: 'MYR',
@@ -120,6 +120,7 @@ export function Providers({ children }: { children: ReactNode }) {
       if (number === request.current) setLoading(false);
     }
   }, []);
+  useEffect(() => trackVisibleArea(), []);
   useEffect(() => {
     void refresh();
     if (!desktop) return;

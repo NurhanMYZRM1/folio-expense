@@ -146,6 +146,31 @@ export function SuccessCheck({ size = 18 }: { size?: number }) {
 }
 
 /**
+ * Publishes the part of the window that is actually visible as CSS variables.
+ * A phone keyboard covers the page without resizing it, so anything pinned to
+ * the bottom (dialogs, notices) would otherwise sit underneath it.
+ */
+export function trackVisibleArea(): () => void {
+  const view = window.visualViewport;
+  if (!view) return () => {};
+  const root = document.documentElement;
+  const publish = () => {
+    const keyboard = Math.max(0, window.innerHeight - view.height - view.offsetTop);
+    root.style.setProperty('--visible-top', `${view.offsetTop}px`);
+    root.style.setProperty('--visible-height', `${view.height}px`);
+    root.style.setProperty('--keyboard', `${keyboard}px`);
+    root.toggleAttribute('data-keyboard', keyboard > 80);
+  };
+  publish();
+  view.addEventListener('resize', publish);
+  view.addEventListener('scroll', publish);
+  return () => {
+    view.removeEventListener('resize', publish);
+    view.removeEventListener('scroll', publish);
+  };
+}
+
+/**
  * Accessible modal: portalled, backdrop blur, spring scale-in (bottom sheet on
  * phones), focus moved inside and restored on close, Escape closes, and the
  * app behind is made inert so focus and assistive tech stay in the dialog.
@@ -175,9 +200,12 @@ export function Modal({
   useEffect(() => {
     if (!open) return;
     const previous = document.activeElement as HTMLElement | null;
-    const shell = document.querySelector<HTMLElement>('.app-shell');
-    shell?.setAttribute('inert', '');
-    shell?.setAttribute('aria-hidden', 'true');
+    // The desktop shell, or a shared screen hosted by the phone app.
+    const behind = document.querySelectorAll<HTMLElement>('.app-shell, .mobile-page');
+    for (const el of behind) {
+      el.setAttribute('inert', '');
+      el.setAttribute('aria-hidden', 'true');
+    }
     const focusFirst = () =>
       panel.current
         ?.querySelector<HTMLElement>('[data-autofocus], button:not(:disabled), [href], input')
@@ -210,8 +238,10 @@ export function Modal({
     return () => {
       cancelAnimationFrame(frame);
       document.removeEventListener('keydown', onKey);
-      shell?.removeAttribute('inert');
-      shell?.removeAttribute('aria-hidden');
+      for (const el of behind) {
+        el.removeAttribute('inert');
+        el.removeAttribute('aria-hidden');
+      }
       previous?.focus?.();
     };
   }, [open]);
