@@ -1,6 +1,7 @@
 use crate::{
     error::{AppError, Result},
     services::AppService,
+    workspaces::Workspaces,
 };
 use std::sync::Arc;
 use tauri::{Runtime, State};
@@ -11,12 +12,13 @@ mod exports;
 mod jobs;
 mod receipts;
 mod settings;
-pub(super) type Service<'a> = State<'a, Arc<AppService>>;
+pub(super) type Service<'a> = State<'a, Arc<Workspaces>>;
 pub(super) async fn blocking<T: Send + 'static>(
     service: Service<'_>,
     f: impl FnOnce(Arc<AppService>) -> Result<T> + Send + 'static,
 ) -> Result<T> {
-    let service = service.inner().clone();
+    // Resolved when the command arrives, so it runs against the account active then.
+    let service = service.active();
     tauri::async_runtime::spawn_blocking(move || f(service))
         .await
         .map_err(|_| {
@@ -37,7 +39,15 @@ async fn forward(
         tauri::ipc::InvokeBody::Json(v) => v.clone(),
         tauri::ipc::InvokeBody::Raw(_) => serde_json::Value::Null,
     };
-    blocking(s, move |s| crate::dispatch::dispatch(&s, command, args)).await
+    let workspaces = s.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || workspaces.dispatch(command, args))
+        .await
+        .map_err(|_| {
+            AppError::new(
+                "InternalError",
+                "The background operation was interrupted. Saved receipts remain available.",
+            )
+        })?
 }
 /// Builds the handler from the hand-written commands plus one generated Tauri
 /// command per core command name. A new core operation needs its `dispatch.rs`
@@ -106,12 +116,18 @@ handler_with_core_commands!(
         jobs::complete_pdf
     ],
     [
+        workspace_info,
         cloud_status,
         cloud_sync,
         cloud_sign_in,
         cloud_sign_out,
         cloud_request_code,
         cloud_verify_code,
+        cloud_oauth_start,
+        cloud_oauth_finish,
+        cloud_oauth_cancel,
+        cloud_adopt,
+        cloud_diagnose,
         cloud_conflicts,
         cloud_resolve_conflict,
         // Ledger (services::finance)

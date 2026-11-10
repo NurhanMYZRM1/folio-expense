@@ -1,9 +1,8 @@
 //! Test-only stdio adapter. Never included in desktop packages and never opens a network port.
 use folio::{
-    dispatch::dispatch,
     error::{AppError, Result},
     security::secrets::SecretStore,
-    services::AppService,
+    workspaces::Workspaces,
 };
 use serde_json::{json, Value};
 use std::{
@@ -29,13 +28,12 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let root = std::env::args()
         .nth(1)
         .ok_or("Expected isolated test data directory")?;
-    let s = AppService::open(root.into(), Arc::new(NoSecrets))?;
+    let s = Workspaces::open(root.into(), Arc::new(NoSecrets))?;
     for line in io::stdin().lock().lines() {
         let line = line?;
         let request: Value = serde_json::from_str(&line)?;
         let request_id = &request["requestId"];
-        let output = match dispatch(
-            &s,
+        let output = match s.dispatch(
             request["command"].as_str().unwrap_or(""),
             request["args"].clone(),
         ) {

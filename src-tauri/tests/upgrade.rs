@@ -289,3 +289,128 @@ fn data_export_refuses_symbolic_links_in_attachments() {
     assert_eq!(fs::read_dir(root.join("cache")).unwrap().count(), 0);
     assert!(!root.join("exports/data").exists());
 }
+
+/// Builds a schema-8 data folder exactly as that release's migrations did.
+fn v8_folder(connected: bool) -> (tempfile::TempDir, std::path::PathBuf) {
+    let t = tempfile::tempdir().unwrap();
+    let root = t.path().join("app");
+    fs::create_dir_all(root.join("database")).unwrap();
+    let db = Connection::open(root.join("database/expenses.sqlite")).unwrap();
+    for sql in [
+        include_str!("../migrations/001_initial.sql"),
+        include_str!("../migrations/002_currency_conversion.sql"),
+        include_str!("../migrations/003_premises.sql"),
+        include_str!("../migrations/004_finance_ledger.sql"),
+        include_str!("../migrations/005_business.sql"),
+        include_str!("../migrations/006_sync.sql"),
+        include_str!("../migrations/007_receipt_items.sql"),
+        include_str!("../migrations/008_cloud_sync.sql"),
+    ] {
+        db.execute_batch(sql).unwrap();
+    }
+    // Synthetic records only; no real workspace is ever read by this test.
+    db.execute_batch(
+        "INSERT INTO expenses(id,occurred_at,merchant_name,total_amount_minor,tax_amount_minor,currency,category,status,created_at,updated_at)
+           VALUES('e1','2026-11-01','Synthetic Cafe',123456,7890,'MYR','Meals','ready','2026-11-01T00:00:00Z','2026-11-01T00:00:00Z');
+         INSERT INTO expense_claims(id,claim_number,title,status,currency,created_at,updated_at)
+           VALUES('c1','CLM-0001','Synthetic claim','draft','MYR','2026-11-01T00:00:00Z','2026-11-01T00:00:00Z');
+         INSERT INTO claim_expenses(claim_id,expense_id,created_at,updated_at)
+           VALUES('c1','e1','2026-11-01T00:00:00Z','2026-11-01T00:00:00Z');
+         INSERT INTO cloud_versions VALUES('expenses','{\"id\":\"e1\"}',4);
+         INSERT INTO cloud_pending VALUES('expense_claims','{\"id\":\"c1\"}','11111111-1111-4111-8111-111111111111',0,'upsert','{\"id\":\"c1\"}');
+         INSERT INTO cloud_conflicts(id,entity,record_key,local_data,remote_record) VALUES('k1','expenses','{\"id\":\"e1\"}','{}','{\"revision\":5}');",
+    )
+    .unwrap();
+    if connected {
+        db.execute(
+            "UPDATE cloud_control SET email='owner@example.com',cursor=198,bootstrapped=1,last_sync='2026-11-06T00:00:00Z'",
+            [],
+        )
+        .unwrap();
+    }
+    assert_eq!(
+        db.query_row("PRAGMA user_version", [], |r| r.get::<_, i32>(0))
+            .unwrap(),
+        8
+    );
+    (t, root)
+}
+
+#[test]
+fn a_connected_v8_workspace_upgrades_with_its_records_sync_state_and_owner() {
+    let (_t, root) = v8_folder(true);
+    let tables = [
+        ("expenses", "*"),
+        ("expense_claims", "*"),
+        ("claim_expenses", "*"),
+        ("cloud_versions", "*"),
+        ("cloud_conflicts", "*"),
+        (
+            "cloud_pending",
+            "entity,record_key,change_id,base_revision,operation,data",
+        ),
+    ];
+    let snapshot = |db: &Connection| -> Vec<Vec<Vec<Sql>>> {
+        tables.iter().map(|(t, cols)| rows(db, t, cols)).collect()
+    };
+    let before = snapshot(&Connection::open(root.join("database/expenses.sqlite")).unwrap());
+    let s = AppService::open(root.clone(), Arc::new(Secrets)).unwrap();
+    let db = Connection::open(root.join("database/expenses.sqlite")).unwrap();
+    assert_eq!(
+        db.query_row("PRAGMA user_version", [], |r| r.get::<_, i32>(0))
+            .unwrap(),
+        folio::db::SCHEMA_VERSION
+    );
+    assert_eq!(
+        snapshot(&db),
+        before,
+        "every record and queued change is unchanged"
+    );
+    let (owner, cursor, vault): (Option<String>, i64, String) = db
+        .query_row(
+            "SELECT owner_id,cursor,vault_id FROM cloud_control",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .unwrap();
+    // Schema 8 accepted the imported owner only, so a connected database is theirs.
+    assert_eq!(
+        owner.as_deref(),
+        Some("045ca64e-aa9e-4c29-8b9d-db45059beb29")
+    );
+    assert_eq!(cursor, 198, "the pull position is kept");
+    assert_eq!(
+        vault.len(),
+        32,
+        "the credential slot is kept, so the session survives"
+    );
+    let status = call(&s, "cloud_status", json!({}));
+    assert_eq!(status["linked"], true);
+    assert_eq!(status["pending"], 1);
+    assert_eq!(status["conflicts"], 1);
+    assert_eq!(
+        call(&s, "list_expenses", json!({}))[0]["totalAmountMinor"],
+        123456
+    );
+    drop(s);
+    // Opening again changes nothing further.
+    let again = AppService::open(root.clone(), Arc::new(Secrets)).unwrap();
+    drop(again);
+    assert_eq!(
+        snapshot(&Connection::open(root.join("database/expenses.sqlite")).unwrap()),
+        before
+    );
+}
+
+#[test]
+fn a_v8_workspace_that_never_connected_stays_unlinked() {
+    let (_t, root) = v8_folder(false);
+    let s = AppService::open(root, Arc::new(Secrets)).unwrap();
+    let status = call(&s, "cloud_status", json!({}));
+    assert_eq!(status["linked"], false);
+    assert_eq!(status["state"], "local");
+    assert_eq!(
+        call(&s, "list_expenses", json!({}))[0]["merchantName"],
+        "Synthetic Cafe"
+    );
+}

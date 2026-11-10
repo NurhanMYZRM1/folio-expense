@@ -1,6 +1,7 @@
 pub mod business;
 pub mod claim_service;
 pub mod cloud_sync;
+pub mod cloud_transport;
 pub mod csv_export;
 pub mod data_export;
 pub mod exchange_rates;
@@ -22,11 +23,15 @@ use crate::{
 use rusqlite::Connection;
 use std::{
     path::PathBuf,
-    sync::{Arc, Mutex, MutexGuard},
+    sync::{atomic::AtomicU64, Arc, Mutex, MutexGuard},
 };
 pub struct AppService {
     pub(crate) db: Mutex<Connection>,
+    /// The one sync worker and session-refresh owner for this workspace.
     pub(crate) cloud_lock: Mutex<Option<cloud_sync::Access>>,
+    pub(crate) cloud: Arc<cloud_transport::Transport>,
+    /// Bumped on sign-out and account change; a sync started earlier stops writing.
+    pub(crate) cloud_generation: AtomicU64,
     pub paths: AppPaths,
     pub(crate) secrets: Arc<dyn SecretStore>,
     pub(crate) rates: Arc<dyn exchange_rates::RateSource>,
@@ -35,11 +40,23 @@ pub struct AppService {
 }
 impl AppService {
     pub fn open(root: PathBuf, secrets: Arc<dyn SecretStore>) -> Result<Self> {
+        let cloud = cloud_transport::Transport::new(cloud_transport::CloudConfig::current()?)?;
+        Self::open_with_cloud(root, secrets, Arc::new(cloud))
+    }
+    /// Opens a workspace that talks to the given cloud project (shared by every
+    /// account workspace of one app, and replaced by a local server in tests).
+    pub fn open_with_cloud(
+        root: PathBuf,
+        secrets: Arc<dyn SecretStore>,
+        cloud: Arc<cloud_transport::Transport>,
+    ) -> Result<Self> {
         let paths = AppPaths::new(root)?;
         let db = db::open(&paths.resolve("database/expenses.sqlite")?)?;
         let service = Self {
             db: Mutex::new(db),
             cloud_lock: Mutex::new(None),
+            cloud,
+            cloud_generation: AtomicU64::new(0),
             paths,
             secrets,
             rates: Arc::new(exchange_rates::FrankfurterRates),

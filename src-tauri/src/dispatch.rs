@@ -33,12 +33,11 @@ pub fn dispatch(s: &AppService, command: &str, a: Value) -> Result<Value> {
     let id = || a["id"].as_str().unwrap_or("");
     let token = || a["token"].as_str().unwrap_or("");
     match command {
+        // Signing in and changing accounts are workspace-level (see workspaces.rs).
         "cloud_status" => out!(s.cloud_status()),
-        "cloud_sync" => out!(s.cloud_sync()),
-        "cloud_sign_in" => out!(s.cloud_sign_in(text_arg!("email"), text_arg!("password"))),
+        "cloud_sync" => out!(s.cloud_sync(a["force"].as_bool().unwrap_or(false))),
         "cloud_sign_out" => out!(s.cloud_sign_out()),
-        "cloud_request_code" => out!(s.cloud_request_code(text_arg!("email"))),
-        "cloud_verify_code" => out!(s.cloud_verify_code(text_arg!("email"), text_arg!("code"))),
+        "cloud_diagnose" => out!(s.cloud_diagnose()),
         "cloud_conflicts" => out!(s.cloud_conflicts()),
         "cloud_resolve_conflict" => {
             out!(s.cloud_resolve_conflict(text_arg!("id"), text_arg!("choice")))
