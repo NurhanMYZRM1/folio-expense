@@ -172,7 +172,13 @@ for (const width of WIDTHS) {
   });
 
   test(`${width}px: a long form dialog scrolls and keeps Save reachable`, async ({ page }) => {
-    const { bridge, errors } = await open(page, width, 'Record transaction', '/finance', async () => {});
+    const { bridge, errors } = await open(
+      page,
+      width,
+      'Record transaction',
+      '/finance',
+      async () => {},
+    );
     try {
       await page.getByRole('link', { name: 'Accounts & goals', exact: true }).click();
       await page.getByRole('button', { name: 'New account' }).first().click();

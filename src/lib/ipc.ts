@@ -69,13 +69,7 @@ export type CloudStatus = {
   lastSync: string | null;
   error: string | null;
   state:
-    | 'local'
-    | 'signedOut'
-    | 'signInAgain'
-    | 'offline'
-    | 'needsAttention'
-    | 'pending'
-    | 'upToDate';
+    'local' | 'signedOut' | 'signInAgain' | 'offline' | 'needsAttention' | 'pending' | 'upToDate';
   failure: string | null;
   retryAt: string | null;
   requestId: string | null;

@@ -118,7 +118,12 @@ function ConnectionDetails() {
           ))}
         </dl>
       )}
-      <button type="button" className="text-button" disabled={checking} onClick={() => void check()}>
+      <button
+        type="button"
+        className="text-button"
+        disabled={checking}
+        onClick={() => void check()}
+      >
         <RefreshCw size={14} className={checking ? 'spin' : ''} />
         {checking ? 'Checking…' : 'Check again'}
       </button>
@@ -225,8 +230,8 @@ export function CloudSync() {
       <div className="settings-fields">
         <p className="field-help">
           Sign in with the same account on each device to keep records and receipt files in sync
-          through your private cloud workspace. Work stays available offline; sync runs while
-          Folio is open and catches up when you return.
+          through your private cloud workspace. Work stays available offline; sync runs while Folio
+          is open and catches up when you return.
         </p>
         {cloud?.signedIn ? (
           <>
@@ -273,9 +278,8 @@ export function CloudSync() {
               </button>
             </div>
             <p className="field-help">
-              Sign-in methods:{' '}
-              {cloud.providers.map((p) => PROVIDERS[p] ?? p).join(', ') || 'Email'}. Signing out
-              pauses cloud transfers. Pending edits stay on this device.
+              Sign-in methods: {cloud.providers.map((p) => PROVIDERS[p] ?? p).join(', ') || 'Email'}
+              . Signing out pauses cloud transfers. Pending edits stay on this device.
             </p>
             {missing.length > 0 && (
               <div className="credential-input">

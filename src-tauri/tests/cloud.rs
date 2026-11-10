@@ -963,3 +963,49 @@ fn an_interrupted_receipt_download_retries_without_blocking_other_files() {
             == 0
     );
 }
+
+#[test]
+fn a_clash_the_app_cannot_match_stops_sync_without_overwriting_either_side() {
+    let cloud = FakeCloud::start();
+    let user = cloud.user("owner@example.com", "email");
+    let (mac, phone) = (Device::new(&cloud), Device::new(&cloud));
+    mac.sign_in("owner@example.com");
+    phone.sign_in("owner@example.com");
+    // The same photo on both devices, put into a different claim on each before syncing.
+    for (device, title) in [(&mac, "Mac claim"), (&phone, "Phone claim")] {
+        let expense = device.import(7);
+        let claim = device.call("create_claim", json!({"title":title,"currency":"MYR"}));
+        device.call(
+            "set_claim_expense",
+            json!({"claimId":claim["id"],"expenseId":expense,"add":true}),
+        );
+    }
+    assert_eq!(mac.sync()["state"], "upToDate");
+    // First the two versions of the expense are put to review, as for any duplicate.
+    assert_eq!(phone.sync()["conflicts"], 1);
+    let conflict = phone.call("cloud_conflicts", json!({}))[0].clone();
+    phone.call(
+        "cloud_resolve_conflict",
+        json!({"id":conflict["id"],"choice":"remote"}),
+    );
+    // One expense cannot be in two claims, and the app does not choose for the person.
+    let before = phone.records();
+    let stopped = phone.sync();
+    assert_eq!(stopped["state"], "needsAttention", "{stopped}");
+    assert!(
+        stopped["error"]
+            .as_str()
+            .unwrap()
+            .contains("clashes with a different record"),
+        "{stopped}"
+    );
+    // Nothing on the phone was rewritten, and nothing of it replaced the Mac's records.
+    assert_eq!(phone.records(), before);
+    assert!(stopped["pending"].as_i64().unwrap() > 0);
+    assert_eq!(cloud.records(&user, "expense_claims").len(), 1);
+    assert_eq!(
+        cloud.records(&user, "expense_claims")[0]["data"]["title"],
+        "Mac claim"
+    );
+    assert_eq!(mac.sync()["state"], "upToDate");
+}

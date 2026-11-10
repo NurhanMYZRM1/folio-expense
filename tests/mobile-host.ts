@@ -91,4 +91,3 @@ export async function installNativeHost(
   }, initialPath);
   return { navigations, errors };
 }
-

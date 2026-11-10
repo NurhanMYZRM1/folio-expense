@@ -90,9 +90,7 @@ test('cloud settings verifies an emailed link, compares conflicts and pauses on 
       'https://jvzaufwijwdqqhmhroet.supabase.co/auth/v1/verify?token=fixture&type=magiclink',
     );
     await page.getByRole('button', { name: 'Sign in and enable sync', exact: true }).click();
-    await expect(
-      page.getByText('Connected as owner@example.com', { exact: true }),
-    ).toBeVisible();
+    await expect(page.getByText('Connected as owner@example.com', { exact: true })).toBeVisible();
     expect(verified).toBe(true);
     await page.getByRole('button', { name: 'Compare versions', exact: true }).click();
     await expect(page.getByRole('cell', { name: 'Local cafe', exact: true })).toBeVisible();
@@ -141,9 +139,7 @@ test('on a phone only the native loop syncs automatically, and Sync now still sy
   });
   try {
     await page.goto('/#/settings');
-    await expect(
-      page.getByText('Connected as owner@example.com', { exact: true }),
-    ).toBeVisible();
+    await expect(page.getByText('Connected as owner@example.com', { exact: true })).toBeVisible();
     await page.waitForTimeout(300);
     await page.evaluate(() => window.dispatchEvent(new Event('focus')));
     await expect.poll(() => calls.status).toBeGreaterThan(1);
@@ -189,9 +185,7 @@ test('a sign-in link or opened-link address can be pasted without another email'
     const opened = 'http://localhost:3000/#access_token=a&refresh_token=r&type=signup';
     await page.getByLabel('Sign-in code or email link', { exact: true }).fill(opened);
     await page.getByRole('button', { name: 'Sign in and enable sync', exact: true }).click();
-    await expect(
-      page.getByText('Connected as owner@example.com', { exact: true }),
-    ).toBeVisible();
+    await expect(page.getByText('Connected as owner@example.com', { exact: true })).toBeVisible();
     expect(requests).toBe(0);
     expect(pasted).toBe(opened);
   } finally {
@@ -240,17 +234,21 @@ test('Google sign-in asks before this device’s records join the account', asyn
     expect(seen).toContain('cloud_oauth_start {"provider":"google","link":false}');
     await page.getByRole('button', { name: 'Cancel sign-in', exact: true }).click();
     await expect.poll(() => seen.some((c) => c.startsWith('cloud_oauth_cancel'))).toBe(true);
-    await expect(page.getByRole('button', { name: 'Continue with Apple', exact: true })).toBeEnabled();
+    await expect(
+      page.getByRole('button', { name: 'Continue with Apple', exact: true }),
+    ).toBeEnabled();
 
     // A sign-in on a device that already has records stops for a decision.
     seen.length = 0;
     await page.getByLabel('Or sign in by email', { exact: true }).fill(OWNER);
     await page.getByRole('button', { name: 'I already have a sign-in link', exact: true }).click();
-    bridge.call = ((inner) =>
+    bridge.call = (
+      (inner) =>
       async <T>(command: string, args: Record<string, unknown> = {}): Promise<T> =>
         command === 'cloud_verify_code'
           ? ({ outcome: 'chooseData', email: OWNER } as T)
-          : inner<T>(command, args))(bridge.call.bind(bridge));
+          : inner<T>(command, args)
+    )(bridge.call.bind(bridge));
     await page.getByLabel('Sign-in code or email link', { exact: true }).fill('123456');
     await page.getByRole('button', { name: 'Sign in and enable sync', exact: true }).click();
     const dialog = page.getByRole('alertdialog');
@@ -260,7 +258,9 @@ test('Google sign-in asks before this device’s records join the account', asyn
     await expect(page.getByText(`Connected as ${OWNER}`, { exact: true })).toBeVisible();
     expect(seen).toContain('cloud_adopt {"choice":"join"}');
     await expect(page.getByText('Sign-in methods: Email, Google.', { exact: false })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Add Apple sign-in', exact: true })).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'Add Apple sign-in', exact: true }),
+    ).toBeVisible();
     await expect(page.getByRole('button', { name: 'Add Google sign-in' })).toHaveCount(0);
 
     await page.getByText('Connection details', { exact: true }).click();

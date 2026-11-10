@@ -10,13 +10,7 @@ import {
   type ReactNode,
 } from 'react';
 import type { Claim, Expense, Job, Settings } from '../bindings/generated';
-import {
-  api,
-  desktop,
-  type CloudOutcome,
-  type CloudProvider,
-  type CloudStatus,
-} from '../lib/ipc';
+import { api, desktop, type CloudOutcome, type CloudProvider, type CloudStatus } from '../lib/ipc';
 import { errorMessage } from '../lib/errors';
 import { X, AlertCircle } from 'lucide-react';
 import { startJobRunner } from '../lib/jobs';
