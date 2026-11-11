@@ -127,6 +127,8 @@ export const api = {
    */
   cloudOauthStart: (provider: CloudProvider, link: boolean) =>
     call<CloudOutcome | null>('cloud_oauth_start', { provider, link }),
+  /** Google and Apple as switched on for the project; null when it cannot be reached. */
+  cloudProviders: () => call<CloudProvider[] | null>('cloud_providers'),
   cloudOauthFinish: (url: string) => call<CloudOutcome>('cloud_oauth_finish', { url }),
   cloudOauthCancel: () => call<null>('cloud_oauth_cancel'),
   cloudAdopt: (choice: 'join' | 'separate' | 'cancel') =>

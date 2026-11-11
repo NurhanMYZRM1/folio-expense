@@ -1009,3 +1009,24 @@ fn a_clash_the_app_cannot_match_stops_sync_without_overwriting_either_side() {
     );
     assert_eq!(mac.sync()["state"], "upToDate");
 }
+
+#[test]
+fn a_provider_the_project_has_not_switched_on_is_not_offered() {
+    let cloud = FakeCloud::start();
+    let device = Device::new(&cloud);
+    assert_eq!(
+        device.call("cloud_providers", json!({})),
+        json!(["google", "apple"])
+    );
+    cloud.disable_provider("apple");
+    assert_eq!(device.call("cloud_providers", json!({})), json!(["google"]));
+    // Starting it anyway explains why instead of opening a browser error page.
+    let refused = message(device.try_call("cloud_oauth_start", json!({"provider":"apple"})));
+    assert!(refused.contains("Apple sign-in is not set up"), "{refused}");
+    assert!(device
+        .try_call("cloud_oauth_start", json!({"provider":"google"}))
+        .is_ok());
+    // Offline, the project's settings are unknown: every method stays available.
+    cloud.set_offline(true);
+    assert_eq!(device.call("cloud_providers", json!({})), Value::Null);
+}

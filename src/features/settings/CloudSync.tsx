@@ -153,6 +153,7 @@ export function CloudSync() {
   const [localError, setLocalError] = useState('');
   const [conflicts, setConflicts] = useState<CloudConflict[]>([]);
   const [reviewing, setReviewing] = useState<string | null>(null);
+  const [available, setAvailable] = useState<CloudProvider[] | null>(null);
   const code = useRef<HTMLInputElement>(null);
   const busy = cloudBusy || requesting;
   // The account these records belong to is offered first; any address can be typed.
@@ -173,6 +174,21 @@ export function CloudSync() {
       active = false;
     };
   }, [cloud?.signedIn, cloud?.conflicts, cloud?.lastSync]);
+
+  useEffect(() => {
+    let active = true;
+    // Only methods the project has switched on are offered; if it cannot be
+    // reached, both stay and an attempt explains what is wrong.
+    void api
+      .cloudProviders()
+      .then((list) => {
+        if (active) setAvailable(list);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
 
   async function requestCode(event: FormEvent) {
     event.preventDefault();
@@ -224,7 +240,8 @@ export function CloudSync() {
   }
   if (!desktop) return null;
   const error = localError || cloudError || cloud?.error;
-  const missing = (['google', 'apple'] as const).filter((p) => !cloud?.providers.includes(p));
+  const offered = (['google', 'apple'] as const).filter((p) => !available || available.includes(p));
+  const missing = offered.filter((p) => !cloud?.providers.includes(p));
   return (
     <Panel title="Cloud sync" action={<Cloud size={17} />}>
       <div className="settings-fields">
@@ -307,7 +324,7 @@ export function CloudSync() {
               </p>
             )}
             <div className="credential-input">
-              {(['google', 'apple'] as const).map((provider) => (
+              {offered.map((provider) => (
                 <button
                   key={provider}
                   type="button"

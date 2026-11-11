@@ -8,7 +8,7 @@ import type { AppError } from "@folio/bindings/generated";
 /** Commands that only read; anything else may change records. */
 const READS = new Set([
   "cloud_status", "cloud_conflicts", "cloud_request_code", "cloud_diagnose", "cloud_oauth_start",
-  "cloud_oauth_cancel", "workspace_info",
+  "cloud_oauth_cancel", "cloud_providers", "workspace_info",
   "list_expenses", "get_expense", "read_receipt", "read_thumbnail", "list_claims", "get_claim",
   "get_settings", "app_info", "list_jobs", "export_snapshot", "open_export", "open_csv_export",
   "open_xlsx_export", "open_data_export",

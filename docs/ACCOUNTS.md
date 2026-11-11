@@ -2,18 +2,33 @@
 
 Folio signs in through the existing Supabase project (`folio-expense`, reference `jvzaufwijwdqqhmhroet`). Three ways lead to the same account: the emailed sign-in link, Google, and Apple. Signing in is optional; everything works on the device without it.
 
-## What the owner must configure before Google and Apple work
+## Project configuration
 
-Checked on 10 November 2026 through the project's public Auth settings: **Google and Apple are both disabled**, so the buttons return Supabase's "provider is not enabled" error until the steps below are done. Email sign-in is unaffected. None of this can be done from the app or its source, and no secret belongs in the repository or a chat.
+State on 12 November 2026, checked through the project's public Auth settings and two test sign-in attempts:
 
-1. **Google.** In Google Cloud Console create an OAuth client of type _Web application_. Authorized redirect URI: `https://jvzaufwijwdqqhmhroet.supabase.co/auth/v1/callback`. In Supabase → Authentication → Sign In / Providers → Google, enable it and enter that client's ID and secret.
-2. **Apple.** In the Apple Developer account create a Services ID with Sign in with Apple enabled. Domain: `jvzaufwijwdqqhmhroet.supabase.co`. Return URL: `https://jvzaufwijwdqqhmhroet.supabase.co/auth/v1/callback`. Create a Sign in with Apple key. In Supabase → Providers → Apple, enable it and enter the Services ID and the generated secret. Apple's secret expires (at most six months); it has to be regenerated.
-3. **Return address.** Supabase → Authentication → URL Configuration → Redirect URLs: add exactly `expenseapp://auth/callback`. No wildcard.
-4. **Adding a provider to an existing account.** Supabase → Authentication → Sign In / Providers → enable **manual linking**. Without it, _Add Google sign-in_ and _Add Apple sign-in_ in Settings are refused by Supabase.
+| Setting                                          | State                                                                                                                                                                                                        |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Email sign-in                                    | On                                                                                                                                                                                                           |
+| Google                                           | **On.** Sign-in goes to Google and returns to `https://jvzaufwijwdqqhmhroet.supabase.co/auth/v1/callback`                                                                                                    |
+| Return address `expenseapp://auth/callback`      | **Allowed**, exactly. An address not on the list is replaced by the default site URL, so the list is strict as intended                                                                                      |
+| Manual linking (needed for _Add Google sign-in_) | Reported as enabled by the owner; not observable from outside, so confirmed only when it is first used                                                                                                       |
+| Apple                                            | **Off.** Needs an Apple Developer Program membership, which is not available. Folio hides _Continue with Apple_ and _Add Apple sign-in_ while the project has Apple off, and starting it anyway explains why |
 
-The two addresses are different on purpose. Google and Apple return to Supabase (`…/auth/v1/callback`); Supabase then returns to the app (`expenseapp://auth/callback`). Receipt links (`expenseapp://receipt/<id>`) are a separate path and are not treated as sign-in.
+No secret belongs in the repository or a chat.
 
-After configuring, verify in this order: sign in by email as the existing owner on the Mac → Settings → _Add Google sign-in_ → sign out → _Continue with Google_ → the same records appear. Then the same on the iPhone.
+### Enabling Apple later
+
+1. In an Apple Developer account, create a Services ID with Sign in with Apple. Domain: `jvzaufwijwdqqhmhroet.supabase.co`. Return URL: `https://jvzaufwijwdqqhmhroet.supabase.co/auth/v1/callback`. Create a Sign in with Apple key.
+2. In Supabase → Authentication → Sign In / Providers → Apple, enable it and enter the Services ID and the generated secret. The secret expires after at most six months and must be regenerated.
+3. Nothing changes in the app: the Apple buttons appear once the project reports Apple as on.
+
+Before an App Store release, check Apple's current login-service rule (App Review Guideline 4.8), which can require an additional privacy-focused sign-in option in apps that offer Google.
+
+### Google, for reference
+
+Google Cloud Console OAuth client of type _Web application_, authorized redirect URI `https://jvzaufwijwdqqhmhroet.supabase.co/auth/v1/callback`, entered under Supabase → Providers → Google. Redirect URLs contains exactly `expenseapp://auth/callback`.
+
+The two addresses are different on purpose. Google returns to Supabase (`…/auth/v1/callback`); Supabase then returns to the app (`expenseapp://auth/callback`). Receipt links (`expenseapp://receipt/<id>`) are a separate path and are not treated as sign-in.
 
 ## How sign-in works
 
@@ -27,7 +42,7 @@ After configuring, verify in this order: sign in by email as the existing owner 
 Each local database belongs to at most one cloud account, identified by the account ID Supabase verified. **Emails and names are never compared by the app.**
 
 - **The existing owner.** A database that connected under the email-only release is bound to that owner (migration 009). Signing in by email keeps working exactly as before.
-- **Keeping the owner's records when adding Google or Apple.** Either add the provider from Settings while signed in (the signed-in session is the proof of ownership), or sign in with a provider whose verified email is the account's email, which Supabase itself links to the same account. A provider identity that belongs to a different account opens that account's own, separate records; it is never merged into the owner's.
+- **Keeping the owner's records when adding Google or Apple.** Either add the provider from Settings while signed in (the signed-in session is the proof of ownership), or sign in with Google using the account's own address: Google verifies that address and Supabase links the sign-in to the same account. A provider identity that belongs to a different account opens that account's own, separate records; it is never merged into the owner's.
 - **Another account on the same device** gets its own folder (`accounts/<account-id>/` inside the data folder) with its own database, receipt files and credential entry. Signing back in as the first account returns to its records. The last active account is remembered across restarts.
 - **Records already on a device with no account** never join an account silently. The first sign-in asks:
   - _Add to this account_ — a consistent snapshot is saved first (`database/before-account-<time>.sqlite`), then the records upload and stay in sync. If this is interrupted, signing in again simply continues.

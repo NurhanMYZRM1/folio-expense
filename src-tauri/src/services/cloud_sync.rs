@@ -221,6 +221,36 @@ fn provider(name: &str) -> Result<&str> {
         Err(fail("Choose Google or Apple."))
     }
 }
+/// The browser sign-in methods this project has switched on. `None` when the
+/// project cannot be reached, so callers can still offer every method.
+pub(crate) fn enabled_providers(cloud: &Transport) -> Option<Vec<String>> {
+    let settings = cloud
+        .json(
+            cloud
+                .request(Method::GET, "/auth/v1/settings")
+                .timeout(Duration::from_secs(8)),
+        )
+        .ok()?;
+    Some(
+        ["google", "apple"]
+            .into_iter()
+            .filter(|p| settings["external"][*p] == true)
+            .map(str::to_owned)
+            .collect(),
+    )
+}
+/// Refuses a provider the project has not switched on, with the reason, instead
+/// of sending the person to a browser page that only shows an error.
+pub(crate) fn require_provider(cloud: &Transport, name: &str) -> Result<()> {
+    provider(name)?;
+    match enabled_providers(cloud) {
+        Some(on) if !on.iter().any(|p| p == name) => Err(fail(&format!(
+            "{} sign-in is not set up for this Folio project yet. Use another sign-in method.",
+            if name == "apple" { "Apple" } else { "Google" }
+        ))),
+        _ => Ok(()),
+    }
+}
 /// The address to open in the system browser for Google or Apple sign-in.
 pub(crate) fn oauth_url(cloud: &Transport, name: &str) -> Result<(Pkce, String)> {
     let (flow, challenge) = Pkce::new(false);

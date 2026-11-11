@@ -203,6 +203,7 @@ test('Google sign-in asks before this device’s records join the account', asyn
   // The provider and the cloud are stubbed: this checks the screens, not a real sign-in.
   bridge.call = async <T>(command: string, args: Record<string, unknown> = {}): Promise<T> => {
     if (command.startsWith('cloud_')) seen.push(`${command} ${JSON.stringify(args)}`);
+    if (command === 'cloud_providers') return ['google'] as T;
     if (command === 'cloud_oauth_start') return null as T;
     if (command === 'cloud_oauth_cancel') return null as T;
     if (command === 'cloud_sign_in') return { outcome: 'chooseData', email: OWNER } as T;
@@ -232,10 +233,12 @@ test('Google sign-in asks before this device’s records join the account', asyn
     await page.getByRole('button', { name: 'Continue with Google', exact: true }).click();
     await expect(page.getByText('Finish signing in in your browser')).toBeVisible();
     expect(seen).toContain('cloud_oauth_start {"provider":"google","link":false}');
+    // Apple is switched off for this project, so it is not offered.
+    await expect(page.getByRole('button', { name: 'Continue with Apple' })).toHaveCount(0);
     await page.getByRole('button', { name: 'Cancel sign-in', exact: true }).click();
     await expect.poll(() => seen.some((c) => c.startsWith('cloud_oauth_cancel'))).toBe(true);
     await expect(
-      page.getByRole('button', { name: 'Continue with Apple', exact: true }),
+      page.getByRole('button', { name: 'Continue with Google', exact: true }),
     ).toBeEnabled();
 
     // A sign-in on a device that already has records stops for a decision.
@@ -258,9 +261,8 @@ test('Google sign-in asks before this device’s records join the account', asyn
     await expect(page.getByText(`Connected as ${OWNER}`, { exact: true })).toBeVisible();
     expect(seen).toContain('cloud_adopt {"choice":"join"}');
     await expect(page.getByText('Sign-in methods: Email, Google.', { exact: false })).toBeVisible();
-    await expect(
-      page.getByRole('button', { name: 'Add Apple sign-in', exact: true }),
-    ).toBeVisible();
+    // Neither a method the account already has nor one the project lacks is offered.
+    await expect(page.getByRole('button', { name: 'Add Apple sign-in' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Add Google sign-in' })).toHaveCount(0);
 
     await page.getByText('Connection details', { exact: true }).click();

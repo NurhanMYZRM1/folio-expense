@@ -215,6 +215,7 @@ impl Workspaces {
         }
     }
     fn begin(&self, provider: &str, link: bool) -> Result<Value> {
+        cloud_sync::require_provider(&self.cloud, provider)?;
         let (flow, url) = if link {
             let token = self.active().cloud_token()?;
             cloud_sync::link_url(&self.cloud, &token, provider)?
@@ -273,6 +274,7 @@ impl Workspaces {
             "cloud_oauth_start" => {
                 self.begin(text("provider")?, a["link"].as_bool().unwrap_or(false))
             }
+            "cloud_providers" => Ok(json!(cloud_sync::enabled_providers(&self.cloud))),
             "cloud_oauth_finish" => self.finish(text("url")?),
             "cloud_oauth_cancel" => {
                 self.flow.lock().unwrap_or_else(|e| e.into_inner()).take();

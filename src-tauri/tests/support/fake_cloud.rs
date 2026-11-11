@@ -70,6 +70,8 @@ pub struct FakeCloud {
     state: Mutex<State>,
     faults: Mutex<Vec<(String, Fault)>>,
     offline: AtomicBool,
+    /// Browser sign-in methods switched off in the project's Auth settings.
+    disabled: Mutex<Vec<String>>,
 }
 
 struct Request {
@@ -104,6 +106,7 @@ impl FakeCloud {
             state: Mutex::default(),
             faults: Mutex::default(),
             offline: AtomicBool::new(false),
+            disabled: Mutex::default(),
         });
         let server = cloud.clone();
         thread::spawn(move || {
@@ -128,6 +131,9 @@ impl FakeCloud {
     }
     pub fn fault(&self, path: &str, fault: Fault) {
         self.faults.lock().unwrap().push((path.into(), fault));
+    }
+    pub fn disable_provider(&self, provider: &str) {
+        self.disabled.lock().unwrap().push(provider.into());
     }
     pub fn set_offline(&self, offline: bool) {
         self.offline.store(offline, Ordering::SeqCst);
@@ -273,6 +279,11 @@ impl FakeCloud {
         ));
         match (r.method.as_str(), r.path.as_str()) {
             ("GET", "/auth/v1/health") => ok(json!({"name":"GoTrue"})),
+            ("GET", "/auth/v1/settings") => {
+                let off = self.disabled.lock().unwrap();
+                let on = |p: &str| !off.iter().any(|d| d == p);
+                ok(json!({"external":{"email":true,"google":on("google"),"apple":on("apple")}}))
+            }
             ("POST", "/auth/v1/token") => {
                 match r.query.get("grant_type").map(String::as_str) {
                     Some("password") => {
