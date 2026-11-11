@@ -53,3 +53,19 @@ Local evidence for this continuation is under `/tmp/folio-live-verification/`; t
 ## Subsequent physical installation
 
 The physical iPhone 17 Pro was subsequently updated wirelessly with a standalone Release build. An iOS 27 launch crash was fixed through Expo's scene-support setting, and the user confirmed the replacement opens. Its two existing expenses and one claim were preserved across the v3-to-v8 migration. This installation and migration check does not claim live cloud convergence on the physical phone. See [physical iPhone testing](IPHONE_TESTING.md) for signing, backup and build details. The additional legacy-workspace regression raises the Rust suite total to 213 passing tests.
+
+## Google sign-in with the account release (12 November 2026)
+
+Build: branch `integration/auth-sync-sdk58` (schema 9), debug build on a clean iPhone 17 Pro simulator (iOS 26.5) with its own empty data folder. The owner completed **Continue with Google** in the system sign-in sheet using the Google account for the existing Folio address. No privileged token or fabricated session was used.
+
+| Check                        | Result                                                                                                                                              |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Settings offered Google only | Apple hidden; the project has Apple off                                                                                                             |
+| Account                      | Google linked to the existing owner by its verified address; the project still has exactly one user, whose sign-in methods are now email and Google |
+| Simulator workspace          | Bound to the existing owner; 198 records in the 22 synced tables, 0 pending, 0 conflicts                                                            |
+| Receipt files                | All 25 files transferred; all 12 originals match their stored size and SHA-256                                                                      |
+| Owner's cloud data unchanged | Change counter 201 before and after (every cloud write advances it); 198 live records and 25 receipt files before and after                         |
+
+Checked by the owner in the app and independently through read-only database queries afterwards.
+
+Not covered: Apple (not enabled), a second Google account, a desktop sign-in, and the physical iPhone.
