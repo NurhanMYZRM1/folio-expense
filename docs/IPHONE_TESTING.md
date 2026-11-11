@@ -60,3 +60,20 @@ xcrun devicectl device install app --device 00008150-001E69D10141401C \
 ```
 
 No further phone interaction was requested after the user deferred testing.
+
+
+## SDK 58 physical verification — 12 November 2026
+
+Installed and launched a signed Release build of `integration/auth-sync-sdk58` at `59fa7ba` on Mn (iPhone 17 Pro, iOS 27.0.1). The physical installation retains `com.folio.expenses`, matching the existing version 8 app; the generated project identifier was overridden only for this local build. The separate older `com.nurhanfawwaz.folio` app was not replaced. Both data containers were backed up before installation.
+
+The version 8 database upgraded to 9. All original columns and rows across 35 tables, plus all four receipt-related files, matched the pre-install backup. The owner confirmed that the New claim dialog remains usable with the keyboard open, including with increased Text Size, then restored the usual size.
+
+Google sign-in completed on the physical phone as the existing owner. The owner chose Add to this account and subsequently confirmed keeping the combined workspace. The two original phone expenses and original claim are preserved alongside the Mac's records. One additional empty draft claim was created during the dialog check and left intact.
+
+A temporary zero-balance account created through the Mac UI appeared on the phone. The owner renamed it on the phone, and the new name and version 2 appeared on the Mac. At deletion confirmation, the owner chose to keep it; deletion propagation was therefore not tested.
+
+The final read-only comparison found all 227 live records across all 22 replicated tables identical between cloud, Mac, and physical phone. All 29 receipt assets matched SHA-256 and size on both devices; both had cursor 231, zero pending operations, zero conflicts, and database integrity `ok`. All 179 original Mac and 26 original phone rows in the six receipt/expense/claim/history tables retained their original values, excluding the technical sync-state marker. There are now 14 expenses and 5 claims on both devices.
+
+The native receipt-processing progress banner was not directly observed on the physical phone. Desktop Google linking opened the account chooser, but Google's page stayed loading, also observed by the owner; browser completion and the return to Folio remain unverified. The desktop's existing session resumed after the owner cleared the rebuilt app's Keychain prompt. Desktop-only commit `0e480c1` registers the missing provider-list command; compile/format checks and the rebuilt Google-only panel passed.
+
+This build's development profile expires on **13 November 2026 at 00:34 MYT**. Signed build, both phone backups, Mac backup, and machine-readable comparisons are saved under the local task's `outputs/` directory in `Documents/Codex/2026-11-12/what-i-need-from-you-1/`. No branch was pushed or merged.
