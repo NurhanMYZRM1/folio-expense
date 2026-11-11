@@ -53,10 +53,8 @@ type Store = {
   signInCloud: (email: string, secret: string, method?: 'password' | 'code') => Promise<void>;
   /** Google or Apple in the system browser; `link` adds it to the signed-in account. */
   signInWithProvider: (provider: CloudProvider, link?: boolean) => Promise<void>;
-  /** The desktop's browser came back with this address. */
-  finishProviderSignIn: (url: string) => Promise<void>;
   cancelProviderSignIn: () => void;
-  /** True while the desktop waits for the browser to return. */
+  /** True while sign-in waits for the browser to return. */
   cloudBrowser: boolean;
   /** Set when records already on this device need a decision before joining an account. */
   cloudChoice: { email: string | null } | null;
@@ -200,15 +198,15 @@ export function Providers({ children }: { children: ReactNode }) {
   const signInWithProvider = useCallback(
     (provider: CloudProvider, link = false) =>
       authenticate(async () => {
-        const result = await api.cloudOauthStart(provider, link);
-        // The desktop continues in the browser and returns through a deep link.
-        if (!result || !('outcome' in result)) setCloudBrowser(true);
-        return result && 'outcome' in result ? result : null;
+        // Both apps wait here until the browser returns or the attempt is cancelled.
+        setCloudBrowser(true);
+        try {
+          const result = await api.cloudOauthStart(provider, link);
+          return result && 'outcome' in result ? result : null;
+        } finally {
+          setCloudBrowser(false);
+        }
       }),
-    [authenticate],
-  );
-  const finishProviderSignIn = useCallback(
-    (url: string) => authenticate(() => api.cloudOauthFinish(url)).catch(() => undefined),
     [authenticate],
   );
   const cancelProviderSignIn = useCallback(() => {
@@ -303,7 +301,6 @@ export function Providers({ children }: { children: ReactNode }) {
         syncCloud,
         signInCloud,
         signInWithProvider,
-        finishProviderSignIn,
         cancelProviderSignIn,
         cloudBrowser,
         cloudChoice,

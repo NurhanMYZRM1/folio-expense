@@ -1030,3 +1030,88 @@ fn a_provider_the_project_has_not_switched_on_is_not_offered() {
     cloud.set_offline(true);
     assert_eq!(device.call("cloud_providers", json!({})), Value::Null);
 }
+
+/// The desktop's browser: follows the sign-in address and returns to the
+/// one-time listener on this computer, like a real browser would.
+fn desktop_browser(cloud: Arc<FakeCloud>, email: &'static str) -> impl Fn(&str) -> Result<()> {
+    move |address: &str| {
+        let callback = cloud.browser_sign_in(address, email);
+        assert!(callback.starts_with("http://127.0.0.1:"), "{callback}");
+        thread::spawn(move || {
+            // A browser may ask the listener for other things first.
+            let origin = callback.split("/auth/").next().unwrap().to_string();
+            let _ = reqwest::blocking::get(format!("{origin}/favicon.ico"));
+            let page = reqwest::blocking::get(&callback).unwrap().text().unwrap();
+            assert!(page.contains("signed in"), "{page}");
+        });
+        Ok(())
+    }
+}
+
+#[test]
+fn desktop_google_sign_in_returns_to_this_app_and_nothing_else() {
+    let cloud = FakeCloud::start();
+    let owner = cloud.user("owner@example.com", "email");
+    let mac = Device::new(&cloud);
+    mac.sign_in("owner@example.com");
+    mac.expense("Owner's record", 1500);
+    mac.sync();
+    mac.call("cloud_sign_out", json!({}));
+
+    // Google with the account's own address signs in to the same account.
+    let result = mac
+        .app
+        .sign_in_with_browser(
+            "google",
+            false,
+            &desktop_browser(cloud.clone(), "owner@example.com"),
+        )
+        .unwrap();
+    assert_eq!(result["outcome"], "signedIn", "{result}");
+    assert_eq!(result["status"]["providers"], json!(["email", "google"]));
+    assert_eq!(mac.merchants(), ["Owner's record"]);
+    assert_eq!(cloud.records(&owner, "expenses").len(), 1);
+
+    // Adding a method from Settings goes through the same listener.
+    let linked = mac
+        .app
+        .sign_in_with_browser(
+            "google",
+            true,
+            &desktop_browser(cloud.clone(), "owner@example.com"),
+        )
+        .unwrap();
+    assert_eq!(linked["outcome"], "linked");
+
+    // Cancelling while the browser is open stops waiting at once and changes nothing.
+    let app = Arc::new(mac);
+    let waiting = {
+        let app = app.clone();
+        thread::spawn(move || app.app.sign_in_with_browser("google", false, &|_| Ok(())))
+    };
+    thread::sleep(std::time::Duration::from_millis(300));
+    app.call("cloud_oauth_cancel", json!({}));
+    let cancelled = waiting.join().unwrap().unwrap();
+    assert_eq!(cancelled["outcome"], "cancelled");
+    assert_eq!(
+        app.status()["signedIn"],
+        true,
+        "the existing session is untouched"
+    );
+    // A browser that cannot be opened ends the attempt with the reason.
+    let refused = app
+        .app
+        .sign_in_with_browser("google", false, &|_| {
+            Err(AppError::new("OpenError", "no browser"))
+        })
+        .err()
+        .unwrap();
+    assert_eq!(refused.message, "no browser");
+    // With no attempt in progress, a returned address cannot sign anyone in.
+    assert!(message(app.try_call(
+        "cloud_oauth_finish",
+        json!({"url":"http://127.0.0.1:1/auth/callback?code=x"})
+    ))
+    .contains("not a Folio sign-in"));
+    assert_eq!(app.status()["signedIn"], true);
+}

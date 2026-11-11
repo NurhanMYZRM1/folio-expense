@@ -199,13 +199,21 @@ test('Google sign-in asks before this device’s records join the account', asyn
   const bridge = new RustBridge(path.join(root, 'app'));
   const native = bridge.call.bind(bridge);
   let status: CloudStatus = signedOut;
+  let browserReturns = () => {};
   const seen: string[] = [];
   // The provider and the cloud are stubbed: this checks the screens, not a real sign-in.
   bridge.call = async <T>(command: string, args: Record<string, unknown> = {}): Promise<T> => {
     if (command.startsWith('cloud_')) seen.push(`${command} ${JSON.stringify(args)}`);
     if (command === 'cloud_providers') return ['google'] as T;
-    if (command === 'cloud_oauth_start') return null as T;
-    if (command === 'cloud_oauth_cancel') return null as T;
+    // Like the app, sign-in waits until the browser returns or it is cancelled.
+    if (command === 'cloud_oauth_start')
+      return new Promise<T>((resolve) => {
+        browserReturns = () => resolve({ outcome: 'cancelled', status } as T);
+      });
+    if (command === 'cloud_oauth_cancel') {
+      browserReturns();
+      return null as T;
+    }
     if (command === 'cloud_sign_in') return { outcome: 'chooseData', email: OWNER } as T;
     if (command === 'cloud_adopt') {
       if (args.choice === 'cancel') return { outcome: 'cancelled', status } as T;
@@ -237,6 +245,8 @@ test('Google sign-in asks before this device’s records join the account', asyn
     await expect(page.getByRole('button', { name: 'Continue with Apple' })).toHaveCount(0);
     await page.getByRole('button', { name: 'Cancel sign-in', exact: true }).click();
     await expect.poll(() => seen.some((c) => c.startsWith('cloud_oauth_cancel'))).toBe(true);
+    await expect(page.getByText('Finish signing in in your browser')).toHaveCount(0);
+    await expect(page.locator('.inline-error')).toHaveCount(0);
     await expect(
       page.getByRole('button', { name: 'Continue with Google', exact: true }),
     ).toBeEnabled();

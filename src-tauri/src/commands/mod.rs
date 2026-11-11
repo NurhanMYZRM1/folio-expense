@@ -52,16 +52,17 @@ async fn forward(
 /// Starts Google or Apple sign-in in the system browser, never an embedded
 /// view, so the provider's page is one the person can verify and trust.
 #[tauri::command]
-async fn cloud_oauth_start(s: Service<'_>, provider: String, link: Option<bool>) -> Result<()> {
+async fn cloud_oauth_start(
+    s: Service<'_>,
+    provider: String,
+    link: Option<bool>,
+) -> Result<serde_json::Value> {
     let workspaces = s.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let started = workspaces.dispatch(
-            "cloud_oauth_start",
-            serde_json::json!({"provider":provider,"link":link.unwrap_or(false)}),
-        )?;
-        open::that(started["url"].as_str().unwrap_or_default())
-            .map_err(|_| AppError::new("OpenError", "Unable to open the browser to sign in."))?;
-        Ok(())
+        workspaces.sign_in_with_browser(&provider, link.unwrap_or(false), &|url| {
+            open::that(url)
+                .map_err(|_| AppError::new("OpenError", "Unable to open the browser to sign in."))
+        })
     })
     .await
     .map_err(|_| AppError::new("InternalError", "Sign-in was interrupted."))?

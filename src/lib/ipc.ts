@@ -121,15 +121,11 @@ export const api = {
   cloudRequestCode: (email: string) => call<CloudStatus>('cloud_request_code', { email }),
   cloudVerifyCode: (email: string, code: string) =>
     call<CloudOutcome>('cloud_verify_code', { email, code }),
-  /**
-   * Opens Google or Apple in the system browser. The phone finishes inside this
-   * call; the desktop returns nothing and finishes when the browser comes back.
-   */
+  /** Opens Google or Apple in the system browser and finishes when it returns. */
   cloudOauthStart: (provider: CloudProvider, link: boolean) =>
     call<CloudOutcome | null>('cloud_oauth_start', { provider, link }),
   /** Google and Apple as switched on for the project; null when it cannot be reached. */
   cloudProviders: () => call<CloudProvider[] | null>('cloud_providers'),
-  cloudOauthFinish: (url: string) => call<CloudOutcome>('cloud_oauth_finish', { url }),
   cloudOauthCancel: () => call<null>('cloud_oauth_cancel'),
   cloudAdopt: (choice: 'join' | 'separate' | 'cancel') =>
     call<CloudOutcome>('cloud_adopt', { choice }),

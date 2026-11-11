@@ -17,6 +17,8 @@ use serde_json::{json, Value};
 use std::{
     collections::HashMap,
     fs,
+    io::{Read, Write},
+    net::{TcpListener, TcpStream},
     path::PathBuf,
     sync::{Arc, Mutex, RwLock},
     time::{Duration, Instant},
@@ -214,17 +216,113 @@ impl Workspaces {
             _ => Err(AppError::invalid("Choose join, separate or cancel.")),
         }
     }
-    fn begin(&self, provider: &str, link: bool) -> Result<Value> {
+    fn begin(&self, provider: &str, link: bool, redirect: &str) -> Result<(String, Instant)> {
         cloud_sync::require_provider(&self.cloud, provider)?;
         let (flow, url) = if link {
             let token = self.active().cloud_token()?;
-            cloud_sync::link_url(&self.cloud, &token, provider)?
+            cloud_sync::link_url(&self.cloud, &token, provider, redirect)?
         } else {
-            cloud_sync::oauth_url(&self.cloud, provider)?
+            cloud_sync::oauth_url(&self.cloud, provider, redirect)?
         };
+        let started = flow.started;
         // Starting again abandons the earlier attempt; its callback can no longer be redeemed.
         *self.flow.lock().unwrap_or_else(|e| e.into_inner()) = Some(flow);
-        Ok(json!({"url":url}))
+        Ok((url, started))
+    }
+    /// The attempt in progress, if it is still the one started at `started`.
+    fn still_waiting(&self, started: Instant) -> bool {
+        self.flow
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .is_some_and(|f| f.started == started)
+    }
+    /// Desktop Google or Apple sign-in. The browser returns to a one-time
+    /// listener on this computer (RFC 8252, section 7.3) rather than to an app
+    /// link, which macOS may hand to any other installed copy of Folio and which
+    /// browsers often refuse to open at the end of a redirect. Waits until the
+    /// browser returns, the attempt is cancelled or replaced, or five minutes pass.
+    pub fn sign_in_with_browser(
+        &self,
+        provider: &str,
+        link: bool,
+        open: &dyn Fn(&str) -> Result<()>,
+    ) -> Result<Value> {
+        let listener = TcpListener::bind(("127.0.0.1", 0))?;
+        let port = listener.local_addr()?.port();
+        let redirect = format!("http://127.0.0.1:{port}/auth/callback");
+        let (url, started) = self.begin(provider, link, &redirect)?;
+        if let Err(e) = open(&url) {
+            self.flow.lock().unwrap_or_else(|e| e.into_inner()).take();
+            return Err(e);
+        }
+        listener.set_nonblocking(true)?;
+        let deadline = started + Duration::from_secs(300);
+        loop {
+            match listener.accept() {
+                Ok((stream, _)) => {
+                    if let Some(result) = self.answer_browser(stream, port) {
+                        return result;
+                    }
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    if !self.still_waiting(started) {
+                        return self.outcome("cancelled", &self.active());
+                    }
+                    if Instant::now() > deadline {
+                        self.flow.lock().unwrap_or_else(|e| e.into_inner()).take();
+                        return Err(fail("Sign-in took too long and expired. Start again."));
+                    }
+                    std::thread::sleep(Duration::from_millis(150));
+                }
+                Err(_) => return Err(fail("Folio could not wait for the browser to return.")),
+            }
+        }
+    }
+    /// Handles one request to the sign-in listener. `None` for anything that
+    /// is not the sign-in return (a browser also asks for an icon).
+    fn answer_browser(&self, mut stream: TcpStream, port: u16) -> Option<Result<Value>> {
+        let _ = stream.set_nonblocking(false);
+        let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+        let mut head = Vec::new();
+        let mut chunk = [0u8; 1024];
+        while !head.windows(4).any(|w| w == b"\r\n\r\n") && head.len() < 16 * 1024 {
+            match stream.read(&mut chunk) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => head.extend_from_slice(&chunk[..n]),
+            }
+        }
+        let head = String::from_utf8_lossy(&head);
+        let target = head
+            .lines()
+            .next()
+            .and_then(|line| line.strip_prefix("GET "))
+            .and_then(|rest| rest.split(' ').next())
+            .unwrap_or_default();
+        let mut reply = |status: &str, title: &str, text: &str| {
+            let body = format!(
+                "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width'><title>Folio</title><body style='font:16px -apple-system,system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1rem'><h1 style='font-size:1.3rem'>{title}</h1><p>{text}</p>"
+            );
+            let _ = stream.write_all(format!("HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes());
+        };
+        if !target.starts_with("/auth/callback") {
+            reply("404 Not Found", "Not found", "");
+            return None;
+        }
+        let result = self.finish(&format!("http://127.0.0.1:{port}{target}"));
+        match &result {
+            Ok(_) => reply(
+                "200 OK",
+                "You’re signed in",
+                "You can close this tab and return to Folio.",
+            ),
+            Err(_) => reply(
+                "200 OK",
+                "Sign-in was not completed",
+                "Return to Folio to see why and try again.",
+            ),
+        }
+        Some(result)
     }
     fn finish(&self, callback: &str) -> Result<Value> {
         let mut flow = self.flow.lock().unwrap_or_else(|e| e.into_inner());
@@ -271,8 +369,13 @@ impl Workspaces {
                 text("email")?,
                 text("password")?,
             )?),
+            // The phone opens this address in the system sign-in sheet, which
+            // returns to the app link it was given.
             "cloud_oauth_start" => {
-                self.begin(text("provider")?, a["link"].as_bool().unwrap_or(false))
+                let callback = self.cloud.config.callback.clone();
+                let link = a["link"].as_bool().unwrap_or(false);
+                let (url, _) = self.begin(text("provider")?, link, &callback)?;
+                Ok(json!({ "url": url }))
             }
             "cloud_providers" => Ok(json!(cloud_sync::enabled_providers(&self.cloud))),
             "cloud_oauth_finish" => self.finish(text("url")?),

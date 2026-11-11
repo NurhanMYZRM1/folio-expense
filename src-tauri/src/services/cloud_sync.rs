@@ -192,11 +192,13 @@ pub(crate) fn code_session(cloud: &Transport, email: &str, code: &str) -> Result
 /// running app can redeem the code Supabase sends back.
 pub(crate) struct Pkce {
     verifier: Zeroizing<String>,
-    started: Instant,
+    pub(crate) started: Instant,
     pub(crate) link: bool,
+    /// Where this attempt asked Supabase to send the browser back.
+    redirect: String,
 }
 impl Pkce {
-    fn new(link: bool) -> (Self, String) {
+    fn new(link: bool, redirect: &str) -> (Self, String) {
         let verifier = Zeroizing::new(format!(
             "{}{}",
             uuid::Uuid::new_v4().simple(),
@@ -209,6 +211,7 @@ impl Pkce {
                 verifier,
                 started: Instant::now(),
                 link,
+                redirect: redirect.to_string(),
             },
             challenge,
         )
@@ -252,28 +255,33 @@ pub(crate) fn require_provider(cloud: &Transport, name: &str) -> Result<()> {
     }
 }
 /// The address to open in the system browser for Google or Apple sign-in.
-pub(crate) fn oauth_url(cloud: &Transport, name: &str) -> Result<(Pkce, String)> {
-    let (flow, challenge) = Pkce::new(false);
+pub(crate) fn oauth_url(cloud: &Transport, name: &str, redirect: &str) -> Result<(Pkce, String)> {
+    let (flow, challenge) = Pkce::new(false, redirect);
     let mut url = reqwest::Url::parse(&format!("{}/auth/v1/authorize", cloud.config.url))
         .map_err(|_| fail("Invalid cloud endpoint."))?;
     url.query_pairs_mut()
         .append_pair("provider", provider(name)?)
-        .append_pair("redirect_to", &cloud.config.callback)
+        .append_pair("redirect_to", redirect)
         .append_pair("code_challenge", &challenge)
         .append_pair("code_challenge_method", "s256");
     Ok((flow, url.into()))
 }
 /// Adds Google or Apple to the account that is signed in now. Supabase only
 /// issues this address to a valid session, which is the proof of ownership.
-pub(crate) fn link_url(cloud: &Transport, access: &str, name: &str) -> Result<(Pkce, String)> {
-    let (flow, challenge) = Pkce::new(true);
+pub(crate) fn link_url(
+    cloud: &Transport,
+    access: &str,
+    name: &str,
+    redirect: &str,
+) -> Result<(Pkce, String)> {
+    let (flow, challenge) = Pkce::new(true, redirect);
     let reply = cloud.json(
         cloud
             .request(Method::GET, "/auth/v1/user/identities/authorize")
             .bearer_auth(access)
             .query(&[
                 ("provider", provider(name)?),
-                ("redirect_to", cloud.config.callback.as_str()),
+                ("redirect_to", redirect),
                 ("code_challenge", challenge.as_str()),
                 ("code_challenge_method", "s256"),
                 ("skip_http_redirect", "true"),
@@ -292,11 +300,16 @@ pub(crate) fn oauth_session(
     flow: &mut Option<Pkce>,
     callback: &str,
 ) -> Result<Session> {
-    let expected = reqwest::Url::parse(&cloud.config.callback)
-        .map_err(|_| fail("Invalid sign-in callback."))?;
+    // The address this attempt asked for (the app link, or this computer's own
+    // one-time listener on the desktop).
+    let expected = flow
+        .as_ref()
+        .map_or(cloud.config.callback.as_str(), |f| f.redirect.as_str());
+    let expected = reqwest::Url::parse(expected).map_err(|_| fail("Invalid sign-in callback."))?;
     let url = reqwest::Url::parse(callback).map_err(|_| fail("Invalid sign-in callback."))?;
     if url.scheme() != expected.scheme()
         || url.host_str() != expected.host_str()
+        || url.port() != expected.port()
         || url.path() != expected.path()
     {
         return Err(fail("That link is not a Folio sign-in callback."));
@@ -1761,6 +1774,7 @@ fn record_conflict(
 mod tests {
     use super::*;
     use crate::security::secrets::SecretStore;
+    use crate::services::cloud_transport::CALLBACK;
     use std::sync::Arc;
     struct Empty;
     impl SecretStore for Empty {
@@ -2121,9 +2135,28 @@ mod tests {
         assert_eq!(retry_delay(Some(Failure::Validation), 0, None), 900);
     }
     #[test]
+    fn a_callback_must_return_to_the_exact_address_its_attempt_asked_for() {
+        let (_dir, s) = setup();
+        let here = "http://127.0.0.1:41234/auth/callback";
+        for stray in [
+            "http://127.0.0.1:41235/auth/callback?code=x",
+            "http://localhost:41234/auth/callback?code=x",
+            "expenseapp://auth/callback?code=x",
+            "http://127.0.0.1:41234/elsewhere?code=x",
+        ] {
+            let mut waiting = Some(Pkce::new(false, here).0);
+            let refused = oauth_session(&s.cloud, &mut waiting, stray).err().unwrap();
+            assert!(refused.message.contains("not a Folio sign-in"), "{stray}");
+            assert!(
+                waiting.is_some(),
+                "a stray address leaves the attempt waiting"
+            );
+        }
+    }
+    #[test]
     fn browser_sign_in_is_bound_to_this_app_and_used_once() {
         let (_dir, s) = setup();
-        let (flow, url) = oauth_url(&s.cloud, "google").unwrap();
+        let (flow, url) = oauth_url(&s.cloud, "google", CALLBACK).unwrap();
         let url = reqwest::Url::parse(&url).unwrap();
         let get = |k: &str| {
             url.query_pairs()
@@ -2143,7 +2176,7 @@ mod tests {
         );
         assert!((43..=128).contains(&flow.verifier.len()));
         assert!(!url.as_str().contains(flow.verifier.as_str()));
-        assert!(oauth_url(&s.cloud, "facebook").is_err());
+        assert!(oauth_url(&s.cloud, "facebook", CALLBACK).is_err());
         let message = |mut flow: Option<Pkce>, callback: &str| {
             oauth_session(&s.cloud, &mut flow, callback)
                 .err()
@@ -2152,7 +2185,7 @@ mod tests {
         };
         // Receipt links and look-alike callbacks are not sign-in callbacks, and
         // they leave a sign-in that is in progress untouched.
-        let mut waiting = Some(Pkce::new(false).0);
+        let mut waiting = Some(Pkce::new(false, CALLBACK).0);
         assert!(oauth_session(&s.cloud, &mut waiting, "expenseapp://receipt/abc").is_err());
         assert!(waiting.is_some());
         assert!(message(None, "expenseapp://receipt/abc").contains("not a Folio sign-in"));
@@ -2168,7 +2201,7 @@ mod tests {
         );
         // A second or stale callback has no flow left to redeem.
         assert!(message(None, "expenseapp://auth/callback?code=abc").contains("already finished"));
-        let mut old = Pkce::new(false).0;
+        let mut old = Pkce::new(false, CALLBACK).0;
         old.started = Instant::now() - Duration::from_secs(301);
         assert!(message(Some(old), "expenseapp://auth/callback?code=abc").contains("expired"));
     }
