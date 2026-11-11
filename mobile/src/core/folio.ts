@@ -19,6 +19,8 @@ const READ_ONLY_NAME = /^(list|get|read|report|parse)_/;
 let opened: Promise<void> | null = null;
 let version = 0;
 const listeners = new Set<() => void>();
+/** The person's own changes, which schedule an upload; never a sync's own result. */
+const edits = new Set<() => void>();
 
 /** Where the app keeps everything; each cloud account has its own folder inside. */
 const baseRoot = () => FolioCore.dataRoot();
@@ -79,7 +81,12 @@ export async function invokeRaw(command: string, args: string): Promise<string> 
   const response = await FolioCore.invoke(command, args);
   // File paths must follow the account before any screen reloads its records.
   if (SIGN_IN.has(command) && !response.startsWith('{"error"')) await readActiveRoot();
-  if (changesRecords(command, response)) changed();
+  if (changesRecords(command, response)) {
+    changed();
+    // A sync that leaves work pending (offline, a held conflict, a receipt still
+    // being read) must not schedule another sync, or it would repeat every 2 s.
+    if (!command.startsWith("cloud_")) edits.forEach((l) => l());
+  }
   return response;
 }
 
@@ -120,12 +127,12 @@ export function startCloudSync(): () => void {
     clearTimeout(debounce);
     debounce = setTimeout(() => void run(true), 2000);
   };
-  listeners.add(edited);
+  edits.add(edited);
   return () => {
     stopped = true;
     clearInterval(timer);
     clearTimeout(debounce);
-    listeners.delete(edited);
+    edits.delete(edited);
     listener.remove();
   };
 }
