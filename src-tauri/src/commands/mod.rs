@@ -140,6 +140,7 @@ handler_with_core_commands!(
         cloud_sign_in,
         cloud_sign_out,
         cloud_request_code,
+        cloud_providers,
         cloud_verify_code,
         cloud_oauth_finish,
         cloud_oauth_cancel,
