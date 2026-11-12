@@ -6,14 +6,14 @@ Folio signs in through the existing Supabase project (`folio-expense`, reference
 
 State on 12 November 2026, checked through the project's public Auth settings and two test sign-in attempts:
 
-| Setting                                                   | State                                                                                                                                                                                                                                                                                 |
-| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Email sign-in                                             | On                                                                                                                                                                                                                                                                                    |
-| Google                                                    | **On.** Sign-in goes to Google and returns to `https://jvzaufwijwdqqhmhroet.supabase.co/auth/v1/callback`                                                                                                                                                                             |
-| Return address `expenseapp://auth/callback`               | **Allowed**, exactly. An address not on the list is replaced by the default site URL, so the list is strict as intended                                                                                                                                                               |
-| Desktop return address `http://127.0.0.1:*/auth/callback` | Accepted today (checked 12 Nov): while the Site URL is `http://localhost:3000`, Supabase accepts any address on this computer. **Add the entry explicitly** under Authentication → URL Configuration → Redirect URLs so desktop sign-in keeps working if the Site URL is ever changed |
-| Manual linking (needed for _Add Google sign-in_)          | Reported as enabled by the owner; not observable from outside, so confirmed only when it is first used                                                                                                                                                                                |
-| Apple                                                     | **Off.** Needs an Apple Developer Program membership, which is not available. Folio hides _Continue with Apple_ and _Add Apple sign-in_ while the project has Apple off, and starting it anyway explains why                                                                          |
+| Setting                                                   | State                                                                                                                                                                                                        |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Email sign-in                                             | On                                                                                                                                                                                                           |
+| Google                                                    | **On.** Sign-in goes to Google and returns to `https://jvzaufwijwdqqhmhroet.supabase.co/auth/v1/callback`                                                                                                    |
+| Return address `expenseapp://auth/callback`               | **Allowed**, exactly. An address not on the list is replaced by the default site URL, so the list is strict as intended                                                                                      |
+| Desktop return address `http://127.0.0.1:*/auth/callback` | **Explicitly allowed.** Added and verified in Supabase URL Configuration on 12 November 2026. A live Mac sign-out → Google sign-in returned to the release build and restored the existing owner’s records.  |
+| Manual linking (needed for _Add Google sign-in_)          | Reported as enabled by the owner; not observable from outside, so confirmed only when it is first used                                                                                                       |
+| Apple                                                     | **Off.** Needs an Apple Developer Program membership, which is not available. Folio hides _Continue with Apple_ and _Add Apple sign-in_ while the project has Apple off, and starting it anyway explains why |
 
 No secret belongs in the repository or a chat.
 
@@ -27,7 +27,7 @@ Before an App Store release, check Apple's current login-service rule (App Revie
 
 ### Google, for reference
 
-Google Cloud Console OAuth client of type _Web application_, authorized redirect URI `https://jvzaufwijwdqqhmhroet.supabase.co/auth/v1/callback`, entered under Supabase → Providers → Google. Redirect URLs contains exactly `expenseapp://auth/callback`.
+Google Cloud Console OAuth client of type _Web application_, authorized redirect URI `https://jvzaufwijwdqqhmhroet.supabase.co/auth/v1/callback`, entered under Supabase → Providers → Google. Redirect URLs contains `expenseapp://auth/callback` for iPhone and `http://127.0.0.1:*/auth/callback` for desktop.
 
 The addresses are different on purpose. Google returns to Supabase (`…/auth/v1/callback`); Supabase then returns to the app:
 
@@ -61,3 +61,9 @@ Each local database belongs to at most one cloud account, identified by the acco
 - The original, account-less records are reachable only while no other account is active on the device; after choosing _Keep them separate_ they remain on disk in the original data folder.
 - Generated PDF, CSV and Excel exports stay on the device that made them.
 - Sync runs while the app is open and catches up when it returns to the foreground. iOS does not allow continuous background sync.
+
+## Live desktop verification — 12 November 2026, 14:19 MYT
+
+Quit the older Folio instance and opened this worktree's Release app built from the loopback fix (`eed3cde`, documentation `8d17c42`). After the owner cleared the new build's Keychain prompt, signed out on the Mac and selected Continue with Google. The browser returned to the one-time loopback listener and displayed “You’re signed in”; Folio showed the same original owner, Email and Google, and no pending changes. No new account or data-adoption choice was created.
+
+Before/after read-only checks retained one user, counter 231, 227 live records, and 29 receipt assets. Aggregate record and asset fingerprints were identical. All 35 local tables were compared with a fresh SQLite snapshot; only the authentication/sync control row changed. The 14 expenses and 5 claims were unchanged, schema stayed at 9, and integrity was `ok`, with zero pending changes/conflicts. The iPhone sign-in method was not changed by this desktop test.
