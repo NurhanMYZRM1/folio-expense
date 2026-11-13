@@ -61,7 +61,6 @@ xcrun devicectl device install app --device 00008150-001E69D10141401C \
 
 No further phone interaction was requested after the user deferred testing.
 
-
 ## SDK 58 physical verification — 12 November 2026
 
 Installed and launched a signed Release build of `integration/auth-sync-sdk58` at `59fa7ba` on Mn (iPhone 17 Pro, iOS 27.0.1). The physical installation retains `com.folio.expenses`, matching the existing version 8 app; the generated project identifier was overridden only for this local build. The separate older `com.nurhanfawwaz.folio` app was not replaced. Both data containers were backed up before installation.
