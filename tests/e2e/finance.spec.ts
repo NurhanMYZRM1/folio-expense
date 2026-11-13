@@ -350,3 +350,52 @@ test('business deletion protects history and Settings creates a real data archiv
     await bridge.close();
   }
 });
+
+test('an unused category can be deleted instead of archived', async ({ page }) => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'folio-category-delete-'));
+  const bridge = new RustBridge(path.join(directory, 'app'));
+  await installBridge(page, bridge, []);
+  try {
+    await page.goto('/#/finance/accounts');
+    await page.getByRole('button', { name: 'New category', exact: true }).click();
+    await page.getByRole('textbox', { name: 'Category name', exact: true }).fill('Tea');
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Tea · expense', exact: true }).click();
+    await page.getByRole('button', { name: 'Delete category', exact: true }).click();
+    await page.getByRole('button', { name: 'Delete', exact: true }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Tea · expense', exact: true })).toHaveCount(0);
+    const left = await bridge.call<{ id: string; name: string }[]>('list_categories', {
+      workspaceId: (await bridge.call<Workspace[]>('list_workspaces', {}))[0].id,
+    });
+    expect(left.map((c) => c.name)).not.toContain('Tea');
+
+    // A category a budget uses is kept and the dialog points to archiving instead.
+    const meals = left.find((c) => c.name === 'Meals')!;
+    await page.goto('/#/finance/budgets');
+    await page.getByRole('button', { name: 'New budget', exact: true }).click();
+    await page
+      .getByRole('dialog')
+      .getByRole('combobox', { name: 'Budget category', exact: true })
+      .selectOption({ label: 'Meals' });
+    await page.getByLabel('Monthly limit (MYR)', { exact: true }).fill('100');
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await page.goto('/#/finance/accounts');
+    await page.getByRole('button', { name: 'Meals · expense', exact: true }).click();
+    await page.getByRole('button', { name: 'Delete category', exact: true }).click();
+    await page.getByRole('button', { name: 'Delete', exact: true }).click();
+    await expect(
+      page.getByText('Archive this category to preserve existing records.'),
+    ).toBeVisible();
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    const kept = await bridge.call<{ id: string }[]>('list_categories', {
+      workspaceId: (await bridge.call<Workspace[]>('list_workspaces', {}))[0].id,
+    });
+    expect(kept.map((c) => c.id)).toContain(meals.id);
+  } finally {
+    await page.goto('about:blank');
+    await bridge.close();
+  }
+});
