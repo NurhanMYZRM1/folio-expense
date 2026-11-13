@@ -10,6 +10,9 @@ import { navTheme, palette } from "~/native/theme";
 
 void SplashScreen.preventAutoHideAsync();
 
+// Opening straight on a pushed screen (the sign-in return lands on Settings) still leaves Back to the tabs.
+export const unstable_settings = { anchor: "(tabs)" };
+
 export default function RootLayout() {
   const version = useDataVersion();
   useEffect(() => {
@@ -55,7 +58,7 @@ export default function RootLayout() {
       <Stack screenOptions={{ headerBackButtonDisplayMode: "minimal", contentStyle: { backgroundColor: p.bg } }}>
         <Stack.Screen name="(tabs)" options={{ headerShown: false, title: "Folio" }} />
         <Stack.Screen name="expenses/[id]" options={{ title: "Expense" }} />
-        <Stack.Screen name="finance" options={{ headerShown: false }} />
+        <Stack.Screen name="settings" options={{ title: "Settings" }} />
         <Stack.Screen name="claims/[id]" options={{ title: "Claim" }} />
       </Stack>
       <StatusOverlay />

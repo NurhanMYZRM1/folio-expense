@@ -13,7 +13,7 @@ import { dataRoot, invokeRaw, useDataVersion } from "~/core/folio";
 import { pickReceipts, type ReceiptSource } from "~/core/pickers";
 import type { FolioHostProps, NavigateMode } from "~/dom/host";
 
-const TAB_ROOTS = new Set(["/", "/expenses", "/import", "/claims", "/settings"]);
+const TAB_ROOTS = new Set(["/", "/expenses", "/import", "/finance", "/claims"]);
 
 // Exports are stored under their IDs; share them under the names the desktop gives them.
 const claimNumbers = new Map<string, string>();
@@ -175,7 +175,10 @@ export function useFolioDomProps(template: string): FolioHostProps {
 
   const navigate = useCallback(async (to: string, _mode: NavigateMode) => {
     const target = to as Href;
-    if (TAB_ROOTS.has(to.split("?")[0]) && router.canGoBack()) router.dismissTo(target);
+    // A tab root pops back to it even inside another tab's retained stack, as deep links do;
+    // dismissTo only sees the focused stack, so it pushed a duplicate root there.
+    // shortcut: private expo-router option (fork/useLinking.native.js), recheck on expo-router upgrades.
+    if (TAB_ROOTS.has(to.split("?")[0])) router.navigate(target, { __internal__popToNavigator: true } as object);
     else router.push(target);
   }, []);
 

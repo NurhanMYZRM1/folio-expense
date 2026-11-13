@@ -227,7 +227,15 @@ function WorkspaceEditor({ workspace, close }: { workspace?: Workspace; close: (
     </FinanceDialog>
   );
 }
-function CategoryEditor({ category, close }: { category?: Category; close: () => void }) {
+function CategoryEditor({
+  category,
+  close,
+  remove,
+}: {
+  category?: Category;
+  close: () => void;
+  remove?: () => void;
+}) {
   const { workspace, refreshFinance } = useFinance();
   const [name, setName] = useState(category?.name ?? ''),
     [kind, setKind] = useState(category?.kind ?? 'expense'),
@@ -267,6 +275,11 @@ function CategoryEditor({ category, close }: { category?: Category; close: () =>
           Archive category
         </label>
       )}
+      {remove && (
+        <button type="button" className="text-button danger-text" onClick={remove}>
+          Delete category
+        </button>
+      )}
     </FinanceDialog>
   );
 }
@@ -276,7 +289,8 @@ export function Accounts() {
   const [edit, setEdit] = useState<Account | 'new' | null>(null),
     [remove, setRemove] = useState<Account | null>(null),
     [workspaceEdit, setWorkspaceEdit] = useState<'edit' | 'new' | null>(null),
-    [categoryEdit, setCategoryEdit] = useState<Category | 'new' | null>(null);
+    [categoryEdit, setCategoryEdit] = useState<Category | 'new' | null>(null),
+    [categoryRemove, setCategoryRemove] = useState<Category | null>(null);
   return (
     <FinanceFrame
       title="Accounts & goals"
@@ -402,6 +416,26 @@ export function Accounts() {
         <CategoryEditor
           category={categoryEdit === 'new' ? undefined : categoryEdit}
           close={() => setCategoryEdit(null)}
+          remove={
+            categoryEdit === 'new'
+              ? undefined
+              : () => {
+                  setCategoryEdit(null);
+                  setCategoryRemove(categoryEdit);
+                }
+          }
+        />
+      )}
+      {categoryRemove && (
+        <ConfirmDelete
+          title={`Delete ${categoryRemove.name}?`}
+          description="Only a category no transaction, bill or budget uses can be deleted. Archive a category in use to keep its history."
+          close={() => setCategoryRemove(null)}
+          remove={async () => {
+            await api.deleteCategory(categoryRemove.id);
+            await refreshFinance();
+            notify('Category deleted.');
+          }}
         />
       )}
     </FinanceFrame>
