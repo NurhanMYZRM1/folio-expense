@@ -39,9 +39,10 @@ run `npx eas-cli@latest device:create` once per device, then build.
 
 ### Web landing page
 
-`web-landing/` is a small static page (what Folio is, and that the app itself is desktop and
-iPhone only) hosted on EAS Hosting at <https://folio-expense.expo.app>. It is not the app: the
-app's data layer is an iOS-only native module, so `expo export -p web` produces a blank page.
+`web-landing/` is a small static page (what Folio is, and that the app itself runs on desktop
+and iPhone, not in a browser) hosted on EAS Hosting at <https://folio-expense.expo.app>. It is
+not the app: the app's data layer is a native module (iOS, plus early Android), so
+`expo export -p web` produces a blank page.
 Redeploy after editing it:
 
 ```bash
