@@ -73,8 +73,9 @@ reach the new binary.
 A fresh EAS checkout does not contain it, so the `eas-build-pre-install` script in
 `package.json` (`scripts/eas-build-pre-install.sh`) runs first on the macOS worker: it installs
 rustup if the image lacks it, runs `build-rust-ios.sh`, and fails the build if the xcframework is
-missing. It skips itself for Android builds. Expect a long, uncached first compile (two release
-targets); to keep an eye on it, read the "Run eas-build-pre-install" step of the build log.
+missing. On an Android build it runs `build-rust-android.sh` instead (see Android below).
+Expect a long, uncached first compile (two release targets); to keep an eye on it, read the
+"Run eas-build-pre-install" step of the build log.
 
 If that hook ever becomes too slow or fragile, the fallback is to build the xcframework in CI,
 upload the zip to storage outside git (for example a GitHub release), and have the hook
@@ -92,8 +93,16 @@ EAS). The repo root is not an npm workspace; the lockfile that applies is `mobil
 
 ### Android
 
-Not supported yet: `modules/folio-core` has no Android side (see `migration-progress.md`).
-Only run iOS builds.
+Early, not yet tested on a device. `modules/folio-core` has an Android side (a Kotlin module
+over the JNI bridge in `src-tauri/src/mobile_jni.rs`), and an arm64 debug APK builds, but the
+app has not been run on an emulator or phone yet (see `docs/PROGRESS.md`).
+
+`npm run rust:android` (`scripts/build-rust-android.sh`) builds the Rust core into
+`modules/folio-core/android/src/main/jniLibs/` for `aarch64-linux-android` and
+`x86_64-linux-android` (override with `FOLIO_ANDROID_TARGETS`). It needs the Android NDK
+(27.1.12297006 by default, from `ANDROID_NDK_HOME` or the SDK) and installs `cargo-ndk` if it
+is missing. `npm run android` builds the core and then runs the app with `expo run:android`.
+On EAS, the pre-install hook builds the core for Android builds.
 
 ### CI (optional)
 
