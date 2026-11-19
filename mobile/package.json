@@ -68,5 +68,10 @@
     "rust:android": "sh scripts/build-rust-android.sh",
     "android": "npm run rust:android && expo run:android --port 8082"
   },
-  "private": true
+  "private": true,
+  "overrides": {
+    "@expo/fingerprint": {
+      "minimatch": "^11.0.1"
+    }
+  }
 }
