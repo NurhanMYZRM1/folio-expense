@@ -30,7 +30,6 @@ pub(crate) fn query<T: DeserializeOwned>(
     let mut stmt = db.prepare(sql)?;
     let names: Vec<String> = stmt
         .column_names()
-        .iter()
         .map(|n| {
             let mut out = String::new();
             let mut upper = false;

@@ -58,7 +58,7 @@ fn write_records(db: &Connection, zip: &mut ZipWriter<fs::File>) -> Result<()> {
         serde_json::to_writer(&mut *zip, table)?;
         zip.write_all(b":[")?;
         let mut q = db.prepare(&format!("SELECT * FROM \"{}\"", table.replace('"', "\"\"")))?;
-        let columns: Vec<_> = q.column_names().iter().map(|s| s.to_string()).collect();
+        let columns: Vec<_> = q.column_names().map(|s| s.to_string()).collect();
         let mut rows = q.query([])?;
         let mut first = true;
         while let Some(row) = rows.next()? {
