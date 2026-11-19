@@ -4,12 +4,24 @@ import * as DocumentPicker from "expo-document-picker";
 import { Directory, File, Paths } from "expo-file-system";
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
+import { Alert, Linking } from "react-native";
 import type { ImportOutcome } from "@folio/bindings/generated";
 import { errorText } from "./folio";
 
 export type ReceiptSource = "camera" | "library" | "files";
 
 export const toPath = (uri: string) => decodeURI(uri.replace(/^file:\/\//, ""));
+
+/** Caches that hold temporary copies of receipts and shared reports (Folio's and the pickers'). */
+const TEMPORARY_COPIES = ["folio-import", "folio-share", "ImagePicker", "ImageManipulator"];
+
+/** Deletes those copies; the Rust core keeps its own. Throws if one cannot be removed. */
+export function clearTemporaryCopies() {
+  for (const name of TEMPORARY_COPIES) {
+    const dir = new Directory(Paths.cache, name);
+    if (dir.exists) dir.delete();
+  }
+}
 
 /** Image formats the Rust core accepts as originals (receipt_storage::stage). */
 const STORED_IMAGES = ["jpg", "jpeg", "png", "heic", "heif"];
@@ -83,7 +95,18 @@ async function pickFrom(source: ReceiptSource): Promise<Picked[]> {
   }
   if (source === "camera") {
     const perm = await ImagePicker.requestCameraPermissionsAsync();
-    if (!perm.granted) return [];
+    if (!perm.granted) {
+      // iOS asks only once; after a refusal the camera can be allowed only in Settings.
+      Alert.alert(
+        "Camera access is off",
+        "To photograph receipts, allow camera access for Folio in Settings. You can still choose photos or files.",
+        [
+          { text: "Not now", style: "cancel" },
+          { text: "Open Settings", onPress: () => void Linking.openSettings() },
+        ],
+      );
+      return [];
+    }
     // The camera hands back a fresh JPEG; there is no original to keep.
     const r = await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 0.9 });
     if (r.canceled) return [];

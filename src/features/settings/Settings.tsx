@@ -3,8 +3,18 @@ import { PaymentDetection } from '../finance/PaymentDetection';
 import { DataExport } from './DataExport';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
-import { ShieldCheck, Monitor, KeyRound, FolderOpen, Save, LockKeyhole, Info } from 'lucide-react';
+import {
+  ShieldCheck,
+  Monitor,
+  KeyRound,
+  FolderOpen,
+  Save,
+  LockKeyhole,
+  Info,
+  Trash2,
+} from 'lucide-react';
 import { PageHeader, Panel } from '../../components/ui';
+import { Modal } from '../../components/motion';
 import { useWorkspace } from '../../app/providers';
 import { api, desktop } from '../../lib/ipc';
 import { errorMessage } from '../../lib/errors';
@@ -41,11 +51,19 @@ function Toggle({
   );
 }
 export function Settings() {
-  const { settings, setSettings, notify } = useWorkspace();
+  const { settings, setSettings, notify, refresh, syncCloud } = useWorkspace();
   const [form, setForm] = useState(settings),
     [info, setInfo] = useState<AppInfo | null>(null),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [confirmErase, setConfirmErase] = useState(false);
   const credential = useRef<HTMLInputElement>(null);
+  // The recipient is named before anything is sent (App Review 5.1.2(i)).
+  let providerHost = 'your provider';
+  try {
+    providerHost = new URL(form.apiBaseUrl).host || providerHost;
+  } catch {
+    // An unfinished URL keeps the generic wording.
+  }
   useEffect(() => {
     if (desktop)
       void api
@@ -85,6 +103,25 @@ export function Settings() {
       notify(errorMessage(e), true);
     } finally {
       setBusy(false);
+    }
+  }
+  async function erase() {
+    setBusy(true);
+    try {
+      await api.eraseAllData();
+      const fresh = await api.settings();
+      setSettings(fresh);
+      setForm(fresh);
+      setInfo(await api.info());
+      await refresh();
+      // Every account on this device was signed out.
+      await syncCloud(true);
+      notify('All Folio data was erased from this device.');
+    } catch (e) {
+      notify(errorMessage(e), true);
+    } finally {
+      setBusy(false);
+      setConfirmErase(false);
     }
   }
   async function chooseDirectory() {
@@ -166,7 +203,7 @@ export function Settings() {
             <div className="settings-fields">
               <Toggle
                 label="Offline OCR"
-                detail="Read receipts on this device with bundled Tesseract OCR. English model included."
+                detail="Read receipts on this device. Nothing is sent online."
                 checked={form.offlineOcrEnabled}
                 onChange={(v) => update('offlineOcrEnabled', v)}
               />
@@ -186,8 +223,10 @@ export function Settings() {
                 <div className="notice-box">
                   <Info size={16} />
                   <span>
-                    Enabling online AI allows receipt images to leave this device. Your provider’s
-                    processing and retention terms apply. Save these preferences before importing.
+                    Enabling online AI sends receipt images, which can show names, addresses and
+                    card digits, to <strong>{providerHost}</strong>, possibly in another country.
+                    That provider’s processing and retention terms apply. Save these preferences
+                    before importing.
                   </span>
                 </div>
               )}
@@ -266,9 +305,9 @@ export function Settings() {
                 )}
               </div>
               <p className="field-help">
-                Write-only input. Saved in macOS Keychain or Windows Credential Manager; never
-                returned to the interface or stored in SQLite. Save the provider URL before adding a
-                credential.
+                Write-only input. Saved in your device’s credential vault (Keychain on Apple
+                devices, Credential Manager on Windows); never returned to the interface or stored
+                in SQLite. Save the provider URL before adding a credential.
               </p>
             </div>
           </Panel>
@@ -294,7 +333,7 @@ export function Settings() {
             <div className="settings-fields">
               <Toggle
                 label="Include receipt images in PDF"
-                detail="Add a receipt appendix so reports remain useful on another computer."
+                detail="Add a receipt appendix so reports remain useful on another device."
                 checked={form.includeReceipts}
                 onChange={(v) => update('includeReceipts', v)}
               />
@@ -362,9 +401,52 @@ export function Settings() {
             <p className="field-help">
               For a backup, close Folio and copy the entire data directory to a secure location.
             </p>
+            <div className="delete-row">
+              <button
+                type="button"
+                className="text-button danger-text"
+                disabled={busy}
+                onClick={() => setConfirmErase(true)}
+              >
+                <Trash2 size={13} />
+                Erase all data
+              </button>
+            </div>
           </section>
         </aside>
       </form>
+      <Modal
+        open={confirmErase}
+        onClose={() => !busy && setConfirmErase(false)}
+        labelledBy="erase-data-title"
+        describedBy="erase-data-body"
+        role="alertdialog"
+      >
+        <div className="modal-icon">
+          <Trash2 size={22} />
+        </div>
+        <h2 id="erase-data-title">Erase all Folio data?</h2>
+        <p id="erase-data-body">
+          This permanently deletes every expense, receipt, claim, finance record, generated report
+          and preference on this device, and removes the stored AI credential. Any cloud account is
+          signed out and its cloud copy is kept, so signing in again brings it back. Copies you
+          saved or shared outside Folio, and existing device or computer backups, are not affected.
+          This cannot be undone.
+        </p>
+        <div className="modal-actions">
+          <button
+            className="button secondary"
+            data-autofocus
+            disabled={busy}
+            onClick={() => setConfirmErase(false)}
+          >
+            Cancel
+          </button>
+          <button className="button danger" disabled={busy} onClick={() => void erase()}>
+            {busy ? 'Erasing…' : 'Erase all data'}
+          </button>
+        </div>
+      </Modal>
     </>
   );
 }

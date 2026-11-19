@@ -342,6 +342,50 @@ impl Workspaces {
         active.accept_session(&session)?;
         self.outcome("linked", &active)
     }
+    /// Erases every workspace on this device (the original one and each account
+    /// one) and returns to an empty original workspace. Cloud copies are kept:
+    /// each workspace signs out before its records go (see `AppService::erase_all_data`).
+    pub fn erase_all_data(&self) -> Result<()> {
+        let accounts: Vec<String> = fs::read_dir(self.base.join("accounts"))
+            .map(|entries| {
+                entries
+                    .filter_map(|e| e.ok()?.file_name().into_string().ok())
+                    .filter(|k| uuid::Uuid::parse_str(k).is_ok())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let keys: Vec<&str> = accounts
+            .iter()
+            .map(String::as_str)
+            .chain([ORIGINAL])
+            .collect();
+        // Refuse before anything is erased, not halfway through.
+        for key in &keys {
+            if self.service(key)?.erase_blocked()? {
+                return Err(AppError::invalid(
+                    "Folio is still reading a receipt or building a report. Try again when it finishes.",
+                ));
+            }
+        }
+        self.flow.lock().unwrap_or_else(|e| e.into_inner()).take();
+        self.waiting
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
+        for key in &keys {
+            self.service(key)?.erase_all_data()?;
+        }
+        self.activate(ORIGINAL)?;
+        let _ = fs::remove_file(self.base.join("active-account"));
+        // Account workspaces are now empty; their folders go too, so signing in
+        // again starts from the cloud copy.
+        let mut opened = self.opened.lock().unwrap_or_else(|e| e.into_inner());
+        for key in &accounts {
+            opened.remove(key);
+            let _ = fs::remove_dir_all(self.base.join("accounts").join(key));
+        }
+        Ok(())
+    }
     /// Every command of the app. Sign-in commands are handled here; the rest
     /// go to whichever workspace is active when they arrive.
     pub fn dispatch(&self, command: &str, a: Value) -> Result<Value> {
@@ -384,6 +428,10 @@ impl Workspaces {
                 Ok(Value::Null)
             }
             "cloud_adopt" => self.adopt(text("choice")?),
+            "erase_all_data" => {
+                self.erase_all_data()?;
+                Ok(Value::Null)
+            }
             _ => dispatch(&self.active(), command, a),
         }
     }

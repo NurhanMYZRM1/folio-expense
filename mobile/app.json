@@ -15,6 +15,14 @@
         "ITSAppUsesNonExemptEncryption": false,
         "NSSpeechRecognitionUsageDescription": "Folio transcribes a short transaction you dictate for your review. The speech service may process audio online.",
         "NSMicrophoneUsageDescription": "Folio uses your microphone only while you dictate a transaction."
+      },
+      "privacyManifests": {
+        "NSPrivacyAccessedAPITypes": [
+          {
+            "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryFileTimestamp",
+            "NSPrivacyAccessedAPITypeReasons": ["C617.1"]
+          }
+        ]
       }
     },
     "android": {
@@ -64,6 +72,8 @@
       "policy": "fingerprint"
     },
     "extra": {
+      "privacyPolicyUrl": null,
+      "supportUrl": null,
       "eas": {
         "projectId": "5010a68a-a7af-4b99-93c9-900a0e0292ee"
       }

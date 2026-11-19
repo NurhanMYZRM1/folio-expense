@@ -3,6 +3,42 @@ import fontkit from '@pdf-lib/fontkit';
 import type { ExportSnapshot, ReceiptContent } from '../bindings/generated';
 import { formatMoney } from './money';
 export type ReceiptReference = { label: string; uri: string };
+/**
+ * Drops a JPEG's APP1 segments (EXIF and XMP: GPS position, device, capture time) so a
+ * shared report doesn't carry them. Everything else, including the image data, is copied
+ * as is; bytes that don't parse as a JPEG header are returned unchanged.
+ */
+export function stripJpegMetadata(bytes: Uint8Array): Uint8Array {
+  if (bytes[0] !== 0xff || bytes[1] !== 0xd8) return bytes;
+  const kept: Uint8Array[] = [bytes.subarray(0, 2)];
+  let i = 2;
+  while (i + 1 < bytes.length && bytes[i] === 0xff) {
+    const marker = bytes[i + 1];
+    if (marker === 0xff) {
+      i++; // fill byte
+      continue;
+    }
+    if (marker === 0xda) break; // start of scan: the rest is image data
+    if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
+      kept.push(bytes.subarray(i, i + 2)); // markers without a length
+      i += 2;
+      continue;
+    }
+    if (i + 3 >= bytes.length) return bytes;
+    const end = i + 2 + ((bytes[i + 2] << 8) | bytes[i + 3]);
+    if (end > bytes.length) return bytes;
+    if (marker !== 0xe1) kept.push(bytes.subarray(i, end));
+    i = end;
+  }
+  kept.push(bytes.subarray(i));
+  const out = new Uint8Array(kept.reduce((n, part) => n + part.length, 0));
+  let at = 0;
+  for (const part of kept) {
+    out.set(part, at);
+    at += part.length;
+  }
+  return out;
+}
 export function receiptReference(id: string, filename: string, base?: string): ReceiptReference {
   return {
     label: `${filename} · ${id}`,
@@ -326,7 +362,9 @@ export async function generateClaimPdf(
             `${filename} cannot be added to the report. Export without the appendix or re-import it as JPG or PNG.`,
           );
         const image =
-          receipt.mimeType === 'image/png' ? await doc.embedPng(bytes) : await doc.embedJpg(bytes);
+          receipt.mimeType === 'image/png'
+            ? await doc.embedPng(bytes)
+            : await doc.embedJpg(stripJpegMetadata(bytes));
         newPage('RECEIPT APPENDIX');
         appendixHeading(index, e.receiptId, label, filename, '', true);
         const scale = Math.min((width - margin * 2) / image.width, (y - 60) / image.height);

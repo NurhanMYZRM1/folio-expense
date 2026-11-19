@@ -10,7 +10,7 @@ pub fn open(path: &Path) -> Result<Connection> {
     // Check the version before anything that writes (switching to WAL
     // rewrites the file header), so a newer database is left untouched.
     check_version(&db)?;
-    db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL; PRAGMA trusted_schema=OFF;")?;
+    db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL; PRAGMA trusted_schema=OFF; PRAGMA secure_delete=ON;")?;
     migrate(&mut db)?;
     Ok(db)
 }

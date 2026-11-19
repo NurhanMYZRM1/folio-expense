@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -176,6 +176,13 @@ export function ClaimDetail() {
   useEffect(() => {
     void load();
   }, [id]);
+  // The picker opens below the expense list; on a phone that is off screen, so bring it into view.
+  const addPanel = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!adding) return;
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    addPanel.current?.scrollIntoView({ block: 'nearest', behavior: reduce ? 'auto' : 'smooth' });
+  }, [adding]);
   async function act(action: () => Promise<unknown>, message?: string) {
     setBusy(true);
     try {
@@ -418,7 +425,7 @@ export function ClaimDetail() {
       </Panel>
       <AnimatePresence initial={false}>
         {adding && draft && (
-          <motion.div key="adding" {...insertMotion}>
+          <motion.div key="adding" ref={addPanel} {...insertMotion}>
             <Panel
               title="Add from your imported receipts"
               action={

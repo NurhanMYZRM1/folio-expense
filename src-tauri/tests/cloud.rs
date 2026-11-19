@@ -1115,3 +1115,57 @@ fn desktop_google_sign_in_returns_to_this_app_and_nothing_else() {
     .contains("not a Folio sign-in"));
     assert_eq!(app.status()["signedIn"], true);
 }
+
+#[test]
+fn erasing_this_device_empties_every_workspace_and_keeps_every_cloud_copy() {
+    let cloud = FakeCloud::start();
+    let (ana, ben) = (
+        cloud.user("ana@example.com", "email"),
+        cloud.user("ben@example.com", "email"),
+    );
+    let device = Device::new(&cloud);
+    let original = device.root();
+    device.sign_in("ana@example.com");
+    device.import(10);
+    device.expense("Ana's dinner", 5000);
+    assert_eq!(device.sync()["state"], "upToDate");
+    assert_eq!(device.sign_in("ben@example.com")["outcome"], "switched");
+    device.expense("Ben's taxi", 700);
+    assert_eq!(device.sync()["state"], "upToDate");
+    let kept = (
+        cloud.records(&ana, "expenses").len(),
+        cloud.records(&ben, "expenses").len(),
+        cloud.object_paths(),
+    );
+    assert_eq!((kept.0, kept.1), (2, 1));
+
+    device.call("erase_all_data", json!({}));
+
+    // Back on an empty, signed-out original workspace with nothing queued.
+    assert_eq!(device.root(), original);
+    assert_eq!(device.status()["signedIn"], false);
+    assert!(device.expenses().is_empty());
+    assert_eq!(device.count("SELECT count(*) FROM receipt_files"), 0);
+    assert_eq!(device.count("SELECT count(*) FROM cloud_pending"), 0);
+    assert!(!device
+        .dir
+        .path()
+        .join("expense-app/accounts")
+        .join(&ben)
+        .exists());
+    // Nothing was deleted upstream: erasing is about this device only.
+    assert_eq!(
+        (
+            cloud.records(&ana, "expenses").len(),
+            cloud.records(&ben, "expenses").len(),
+            cloud.object_paths()
+        ),
+        kept
+    );
+    // A relaunch stays erased, and signing in again brings the cloud copy back.
+    let device = device.relaunch();
+    assert!(device.expenses().is_empty());
+    device.sign_in("ana@example.com");
+    device.sync();
+    assert!(device.merchants().contains(&"Ana's dinner".to_string()));
+}
