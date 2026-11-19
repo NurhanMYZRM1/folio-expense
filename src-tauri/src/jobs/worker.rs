@@ -435,7 +435,9 @@ impl AppService {
         };
         e.extraction_confidence = Some(confidence);
         e.updated_at = now();
+        crate::services::finance::sync_receipt_in(&tx, &e)?;
         expenses::save(&tx, &e)?;
+        crate::services::receipt_items::capture_extracted_items(&tx, &e, &result, source.clone())?;
         if let Some(ref claim_id) = e.claim_id {
             tx.execute(
                 "UPDATE expense_claims SET version=version+1,updated_at=?1 WHERE id=?2",

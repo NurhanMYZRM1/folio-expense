@@ -45,3 +45,17 @@ pub(super) async fn open_xlsx_export(s: Service<'_>, id: String) -> Result<()> {
     })
     .await
 }
+#[tauri::command]
+pub(super) async fn open_data_export(
+    s: super::Service<'_>,
+    id: String,
+) -> crate::error::Result<()> {
+    super::blocking(s, move |s| {
+        let path = std::path::PathBuf::from(s.data_export_path(&id)?);
+        open::that(path.parent().unwrap()).map_err(|_| {
+            crate::error::AppError::new("OpenError", "Unable to show the data archive folder.")
+        })?;
+        Ok(())
+    })
+    .await
+}

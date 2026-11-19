@@ -68,11 +68,9 @@ The only credential IPC operation writes or deletes a secret; the UI receives on
 
 The app-owned directory uses OS user protections. This is not database encryption or protection from malware running as the same OS account. Exported reports intentionally contain claim/receipt data and may be copied outside the data directory by the user.
 
-## Future sync and enterprise work
+## Cloud sync and accounts
 
-The MVP does not enqueue or perform cloud synchronization. `local_only` is truthful even after edits. The reserved `future_sync` job type is not consumed. A future change can write an outbox item in the same local transaction, then upload asynchronously. Network failure must never roll back a local mutation. Sync requires tombstones for deletions, conflict resolution, and per-record remote versions before enabling multi-device writes; these are explicitly deferred.
-
-Repositories/services are cloud-neutral. Add Supabase, AWS, Azure, or a company API behind an outbox transport and receipt-reference resolver. PDF reference construction supports either `expenseapp://receipt/<id>` or a future HTTPS base without changing report layout. Company identities, roles, policies, and approval workflow should be separate domain modules, not booleans bolted onto the expense state machine.
+Cloud synchronization is implemented in the shared Rust core and is optional. See [automatic sync](AUTOMATIC_SYNC.md) and [accounts](ACCOUNTS.md). Local changes are captured by SQLite triggers in the same transaction as the edit, so a network failure never rolls back or loses a local change. The original `sync_state` columns and the reserved `future_sync` job type are unused by it.
 
 ## Primary implementation references
 
