@@ -10,8 +10,8 @@ export RUSTC="$("$rustup" which --toolchain stable rustc)"
 export IPHONEOS_DEPLOYMENT_TARGET=16.4
 # EAS builds the simulator app for arm64 *and* x86_64, so its simulator slice must hold
 # both ("library 'folio' not found" otherwise). A local build only needs this Mac's
-# architecture, so the Intel simulator target is opt-in: FOLIO_IOS_SIM_X86=1 (the EAS
-# pre-install hook sets it).
+# architecture, so the Intel simulator target is opt-in: FOLIO_IOS_SIM_X86=1 (the
+# development-simulator profile in eas.json sets it).
 targets="aarch64-apple-ios aarch64-apple-ios-sim"
 if [ "${FOLIO_IOS_SIM_X86:-}" = "1" ]; then
   targets="$targets x86_64-apple-ios"

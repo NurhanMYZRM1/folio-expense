@@ -1,8 +1,6 @@
 //! C ABI for the mobile app (Expo native module). Requests and responses are
 //! the same JSON the test driver speaks: `{"result": …}` or `{"error": AppError}`.
-use crate::{
-    dispatch::dispatch, error::AppError, security::secrets::OsSecretStore, services::AppService,
-};
+use crate::{error::AppError, security::secrets::OsSecretStore, workspaces::Workspaces};
 use serde_json::{json, Value};
 use std::{
     ffi::{c_char, CStr, CString},
@@ -11,7 +9,7 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-static SERVICE: OnceLock<Arc<AppService>> = OnceLock::new();
+static SERVICE: OnceLock<Workspaces> = OnceLock::new();
 
 fn read(ptr: *const c_char) -> Option<String> {
     if ptr.is_null() {
@@ -59,9 +57,9 @@ pub unsafe extern "C" fn folio_open(root: *const c_char) -> *mut c_char {
         let Some(root) = read(root) else {
             return error(AppError::invalid("Missing data folder."));
         };
-        match AppService::open(PathBuf::from(root), Arc::new(OsSecretStore)) {
+        match Workspaces::open(PathBuf::from(root), Arc::new(OsSecretStore)) {
             Ok(service) => {
-                let _ = SERVICE.set(Arc::new(service));
+                let _ = SERVICE.set(service);
                 json!({ "result": null })
             }
             Err(e) => error(e),
@@ -89,7 +87,7 @@ pub unsafe extern "C" fn folio_invoke(command: *const c_char, args: *const c_cha
             Some(Err(e)) => return error(e.into()),
             None => Value::Null,
         };
-        match dispatch(service, &command, args) {
+        match service.dispatch(&command, args) {
             Ok(result) => json!({ "result": result }),
             Err(e) => error(e),
         }

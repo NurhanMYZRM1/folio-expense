@@ -1,3 +1,4 @@
+mod business_dispatch;
 #[cfg(feature = "desktop")]
 mod commands;
 pub mod db;
@@ -7,10 +8,13 @@ pub mod error;
 #[cfg(feature = "mobile")]
 pub mod ffi;
 pub mod jobs;
+#[cfg(all(feature = "mobile", target_os = "android"))]
+mod mobile_jni;
 pub mod repository;
 pub mod security;
 pub mod services;
 pub mod storage;
+pub mod workspaces;
 #[cfg(feature = "desktop")]
 pub fn run() {
     use tauri::Manager;
@@ -34,12 +38,12 @@ pub fn run() {
                     return Ok(());
                 }
             };
-            match services::AppService::open(
+            match workspaces::Workspaces::open(
                 root.clone(),
                 std::sync::Arc::new(security::secrets::OsSecretStore),
             ) {
-                Ok(service) => {
-                    app.manage(std::sync::Arc::new(service));
+                Ok(workspaces) => {
+                    app.manage(std::sync::Arc::new(workspaces));
                 }
                 Err(error) => {
                     // A newer database is refused before anything is written.

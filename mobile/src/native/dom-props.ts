@@ -1,16 +1,19 @@
 // What a shared Folio screen gets from the native side when it runs in a DOM
 // component: core calls, pickers, PDF pages, sharing and navigation.
+import { Asset } from "expo-asset";
 import { Directory, File, Paths } from "expo-file-system";
 import { router, useLocalSearchParams, useNavigation, type Href } from "expo-router";
 import * as Sharing from "expo-sharing";
+import * as WebBrowser from "expo-web-browser";
 import { useCallback, useMemo } from "react";
 import { ActionSheetIOS, Alert, Platform } from "react-native";
 import FolioCore from "../../modules/folio-core";
+import { requestReminders } from "~/core/reminders";
 import { dataRoot, invokeRaw, useDataVersion } from "~/core/folio";
 import { pickReceipts, type ReceiptSource } from "~/core/pickers";
 import type { FolioHostProps, NavigateMode } from "~/dom/host";
 
-const TAB_ROOTS = new Set(["/", "/expenses", "/import", "/claims", "/settings"]);
+const TAB_ROOTS = new Set(["/", "/expenses", "/import", "/finance", "/claims"]);
 
 // Exports are stored under their IDs; share them under the names the desktop gives them.
 const claimNumbers = new Map<string, string>();
@@ -36,6 +39,9 @@ function remember(command: string, args: string, response: string) {
     const claim = (result as { claim: { id: string; claimNumber: string } }).claim;
     claimNumbers.set(claim.id, claim.claimNumber);
   } else if (
+    command === "save_invoice_pdf" ||
+    command === "export_all_data" ||
+    command === "export_transactions_csv" ||
     command === "export_claim_csv" ||
     command === "export_expenses_csv" ||
     command === "export_claim_xlsx" ||
@@ -49,14 +55,55 @@ function remember(command: string, args: string, response: string) {
   }
 }
 
+/**
+ * Google or Apple sign-in in the system browser (ASWebAuthenticationSession),
+ * finished here. The shared screen only ever receives the outcome: the address
+ * the browser returns, and the session it leads to, stay on the native side.
+ */
+async function providerSignIn(args: string): Promise<string> {
+  const started = await invokeRaw("cloud_oauth_start", args);
+  if (started.startsWith('{"error"')) return started;
+  const { url } = (JSON.parse(started) as { result: { url: string } }).result;
+  const result = await WebBrowser.openAuthSessionAsync(url, "expenseapp://auth/callback");
+  if (result.type !== "success") {
+    await invokeRaw("cloud_oauth_cancel", "{}");
+    return cancelled();
+  }
+  return invokeRaw("cloud_oauth_finish", JSON.stringify({ url: result.url }));
+}
+async function cancelled(): Promise<string> {
+  const status = JSON.parse(await invokeRaw("cloud_status", "{}")) as { result: unknown };
+  return JSON.stringify({ result: { outcome: "cancelled", status: status.result } });
+}
+
 /** Generated reports, CSVs and Excel workbooks open in the share sheet (Files, Mail, Print…). */
 async function invoke(command: string, args: string): Promise<string> {
+  if (command === "read_platform_info") return JSON.stringify({ result: { platform: Platform.OS, paymentAccess: Platform.OS === "android" && FolioCore.paymentNotificationAccess() } });
+  if (command === "request_payment_access") {
+    if (Platform.OS !== "android") return JSON.stringify({ error: { code: "Unsupported", message: "Payment notification access is Android only." } });
+    await FolioCore.requestPaymentNotificationAccess();
+    return JSON.stringify({ result: null });
+  }
+  if (command === "cloud_oauth_start") return providerSignIn(args);
+  if (command === "request_reminders") return JSON.stringify({ result: await requestReminders() });
+  if (command === "transcribe_voice") {
+    try { return JSON.stringify({ result: await FolioCore.transcribeVoice() }); }
+    catch (e) { return JSON.stringify({ error: { code: "SpeechUnavailable", message: e instanceof Error ? e.message : String(e) } }); }
+  }
+  if (command === "cancel_transcription") { FolioCore.cancelTranscription(); return JSON.stringify({ result: null }); }
+  if (command === "read_invoice_font") {
+    // Metro bundles the same font used by the native claim PDF generator.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const asset = Asset.fromModule(require("@fontsource/noto-sans/files/noto-sans-latin-400-normal.woff"));
+    await asset.downloadAsync();
+    return JSON.stringify({ result: new File(asset.localUri ?? asset.uri).base64Sync() });
+  }
   const response = await invokeRaw(command, args);
   if (response.startsWith('{"error"')) return response;
-  if (command === "open_export" || command === "open_csv_export" || command === "open_xlsx_export") {
+  if (command === "open_invoice_pdf" || command === "open_export" || command === "open_csv_export" || command === "open_xlsx_export" || command === "open_data_export") {
     const path = (JSON.parse(response) as { result?: string }).result;
     const id = (JSON.parse(args) as { id?: string }).id ?? "";
-    if (path) await share(path, exportNames.get(id) ?? (command === "open_export" ? "Folio claim report.pdf" : undefined));
+    if (path) await share(path, exportNames.get(id) ?? (command === "open_invoice_pdf" || command === "open_export" ? "Folio claim report.pdf" : undefined));
     return JSON.stringify({ result: null });
   }
   remember(command, args, response);
@@ -128,7 +175,10 @@ export function useFolioDomProps(template: string): FolioHostProps {
 
   const navigate = useCallback(async (to: string, _mode: NavigateMode) => {
     const target = to as Href;
-    if (TAB_ROOTS.has(to.split("?")[0]) && router.canGoBack()) router.dismissTo(target);
+    // A tab root pops back to it even inside another tab's retained stack, as deep links do;
+    // dismissTo only sees the focused stack, so it pushed a duplicate root there.
+    // shortcut: private expo-router option (fork/useLinking.native.js), recheck on expo-router upgrades.
+    if (TAB_ROOTS.has(to.split("?")[0])) router.navigate(target, { __internal__popToNavigator: true } as object);
     else router.push(target);
   }, []);
 

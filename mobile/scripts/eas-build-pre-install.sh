@@ -9,12 +9,6 @@
 # mobile/), which EAS uploads: the whole git repository is archived.
 set -eu
 
-# The native module is iOS-only; an Android build runs this hook on Linux.
-if [ "${EAS_BUILD_PLATFORM:-ios}" != "ios" ]; then
-  echo "eas-build-pre-install: platform is ${EAS_BUILD_PLATFORM}, skipping the Rust iOS build."
-  exit 0
-fi
-
 # build-rust-ios.sh needs rustup (it pins the `stable` toolchain and adds the iOS
 # targets itself). Install it if the image does not ship it.
 if ! command -v rustup >/dev/null 2>&1 && [ ! -x "$HOME/.cargo/bin/rustup" ]; then
@@ -26,8 +20,12 @@ PATH="$HOME/.cargo/bin:$PATH"
 export PATH
 
 rustup --version
-# EAS builds the iOS simulator for arm64 and x86_64: include the Intel simulator slice.
-FOLIO_IOS_SIM_X86=1 sh scripts/build-rust-ios.sh
-
-test -d modules/folio-core/ios/Frameworks/FolioFFI.xcframework
-echo "eas-build-pre-install: FolioFFI.xcframework built."
+if [ "${EAS_BUILD_PLATFORM:-ios}" = "android" ]; then
+  sh scripts/build-rust-android.sh
+  test -f modules/folio-core/android/src/main/jniLibs/arm64-v8a/libfolio.so
+else
+  # The development-simulator profile sets FOLIO_IOS_SIM_X86=1: EAS builds the
+  # simulator app for arm64 and x86_64, so it needs the Intel simulator slice too.
+  sh scripts/build-rust-ios.sh
+  test -d modules/folio-core/ios/Frameworks/FolioFFI.xcframework
+fi

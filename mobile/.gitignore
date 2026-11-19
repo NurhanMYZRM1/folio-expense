@@ -44,3 +44,5 @@ example
 
 # Built from ../src-tauri by npm run rust:ios
 modules/folio-core/ios/Frameworks/
+modules/folio-core/android/src/main/jniLibs/
+modules/folio-core/android/build/
