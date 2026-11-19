@@ -15,6 +15,16 @@ export class RustBridge {
         `src-tauri/target/debug/test-driver${process.platform === 'win32' ? '.exe' : ''}`,
       ),
       [directory],
+      // Point cloud calls at a closed local port, so a browser test never
+      // reaches the real Supabase project.
+      {
+        env: {
+          ...process.env,
+          FOLIO_CLOUD_ENV: 'test',
+          FOLIO_CLOUD_URL: 'http://127.0.0.1:9',
+          FOLIO_CLOUD_KEY: 'sb_publishable_test',
+        },
+      },
     );
     createInterface({ input: this.process.stdout }).on('line', (line) => {
       const response = JSON.parse(line);

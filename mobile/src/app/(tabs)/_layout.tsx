@@ -18,13 +18,13 @@ export default function TabsLayout() {
         <NativeTabs.Trigger.Label>Scan</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf={{ default: "doc.viewfinder", selected: "doc.viewfinder.fill" }} md="document_scanner" />
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="finance">
+        <NativeTabs.Trigger.Label>Finance</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon sf={{ default: "creditcard", selected: "creditcard.fill" }} md="account_balance_wallet" />
+      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="claims">
         <NativeTabs.Trigger.Label>Claims</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf={{ default: "folder", selected: "folder.fill" }} md="folder" />
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="settings">
-        <NativeTabs.Trigger.Label>Settings</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon sf={{ default: "gearshape", selected: "gearshape.fill" }} md="settings" />
       </NativeTabs.Trigger>
     </NativeTabs>
   );

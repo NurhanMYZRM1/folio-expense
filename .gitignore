@@ -9,6 +9,7 @@ public/fonts/*
 !public/ocr/.gitkeep
 .env*
 *.sqlite*
+!src-tauri/tests/fixtures/v3-main/database/expenses.sqlite
 .DS_Store
 public/pdf/
 *.tsbuildinfo

@@ -2,6 +2,10 @@ import { requireNativeModule } from "expo";
 
 interface FolioCoreNative {
   dataRoot(): string;
+  paymentNotificationAccess(): boolean;
+  requestPaymentNotificationAccess(): Promise<void>;
+  transcribeVoice(): Promise<string>;
+  cancelTranscription(): void;
   open(root: string): Promise<string>;
   invoke(command: string, args: string): Promise<string>;
   recognizeText(path: string): Promise<{ text: string; confidence: number | null }>;
