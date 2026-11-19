@@ -151,3 +151,11 @@ input[type="month"] {
     grid-template-columns: minmax(0, 1fr) !important;
   }
 }
+
+/* Desktop-only settings. On iPhone, exports leave through the share sheet and
+   backups are the device's own (iCloud or computer), so these controls have no effect. */
+.mobile-page .field:has(.directory-input),
+.mobile-page .field:has(.directory-input) + .field-help,
+.mobile-page .storage-info .field-help {
+  display: none;
+}

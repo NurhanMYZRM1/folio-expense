@@ -24,6 +24,8 @@ if [ "${EAS_BUILD_PLATFORM:-ios}" = "android" ]; then
   sh scripts/build-rust-android.sh
   test -f modules/folio-core/android/src/main/jniLibs/arm64-v8a/libfolio.so
 else
+  # The development-simulator profile sets FOLIO_IOS_SIM_X86=1: EAS builds the
+  # simulator app for arm64 and x86_64, so it needs the Intel simulator slice too.
   sh scripts/build-rust-ios.sh
   test -d modules/folio-core/ios/Frameworks/FolioFFI.xcframework
 fi

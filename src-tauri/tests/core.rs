@@ -1481,3 +1481,61 @@ fn startup_removes_orphaned_heic_receipt_folders() {
     AppService::open(root, Arc::new(MemorySecrets::default())).unwrap();
     assert!(!orphan.exists());
 }
+#[test]
+fn erase_all_data_leaves_an_empty_workspace_and_no_trace_of_records() {
+    let (t, s) = workspace();
+    let id = import(&t, &s);
+    // A running extraction lease blocks erasing until it finishes.
+    let lease = extraction_job(&s);
+    assert!(s.erase_all_data().is_err());
+    s.fail_job(&lease.job.id, &lease.token, "stop").unwrap();
+    let mut e = edit(&s, &id);
+    e.merchant_name = Some("Erasable Unique Kopitiam".into());
+    e.total_amount_minor = Some(1000);
+    s.edit_expense(e).unwrap();
+    let claim = s.create_claim("Trip".into(), "MYR".into()).unwrap();
+    s.set_claim_expense(&claim.id, &id, true).unwrap();
+    let export = s.export_claim_csv(&claim.id).unwrap();
+    let mut settings = s.settings().unwrap();
+    settings.employee = "Erasable Person".into();
+    s.save_settings(settings).unwrap();
+    s.set_credential("secret-key".into()).unwrap();
+    // Finance records live in the same database and go too.
+    let w = s.workspaces().unwrap().remove(0);
+    s.save_account(serde_json::from_value(serde_json::json!({"id":null,"version":null,"workspaceId":w.id,"name":"Erasable Savings","kind":"bank","currency":"MYR","openingBalanceMinor":500,"goalTargetMinor":null,"goalTargetDate":null,"loanDirection":null,"loanPrincipalMinor":null,"loanAnnualRate":null,"counterparty":null,"note":"","archived":false})).unwrap()).unwrap();
+    let data_export = s.export_all_data().unwrap();
+    let on_disk = |s: &AppService| {
+        ["database/expenses.sqlite", "database/expenses.sqlite-wal"]
+            .iter()
+            .any(|f| {
+                fs::read(s.paths.root.join(f))
+                    .unwrap_or_default()
+                    .windows(9)
+                    .any(|w| w == b"Erasable ")
+            })
+    };
+    assert!(on_disk(&s), "the check below must be able to see the text");
+
+    s.erase_all_data().unwrap();
+
+    assert!(s.expenses().unwrap().is_empty());
+    assert!(s.claims().unwrap().is_empty());
+    assert!(s.jobs().unwrap().is_empty());
+    assert!(!s.app_info().unwrap().credential_configured);
+    assert_eq!(s.settings().unwrap().employee, "");
+    assert!(!std::path::Path::new(&export.path).exists());
+    assert!(
+        !std::path::Path::new(&data_export.path).exists(),
+        "a data archive is a full copy of the database"
+    );
+    let w = s.workspaces().unwrap().remove(0);
+    assert!(s.accounts(&w.id).unwrap().is_empty());
+    assert_eq!(
+        fs::read_dir(s.paths.root.join("receipts")).unwrap().count(),
+        0
+    );
+    assert!(!on_disk(&s), "the database still holds erased text");
+    // The workspace keeps working afterwards.
+    import(&t, &s);
+    assert_eq!(s.expenses().unwrap().len(), 1);
+}

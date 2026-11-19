@@ -136,6 +136,7 @@ handler_with_core_commands!(
     ],
     [
         workspace_info,
+        erase_all_data,
         cloud_status,
         cloud_sync,
         cloud_sign_in,

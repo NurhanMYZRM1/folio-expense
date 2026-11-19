@@ -91,6 +91,65 @@ impl AppService {
         self.online_backoff().clear();
         Ok(())
     }
+    /// Whether a receipt read or report build still holds a live lease, so
+    /// erasing now would pull files out from under it.
+    pub(crate) fn erase_blocked(&self) -> Result<bool> {
+        let cutoff = (chrono::Utc::now() - chrono::Duration::minutes(2))
+            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+        Ok(self.conn()?.query_row(
+            "SELECT EXISTS(SELECT 1 FROM jobs WHERE status='running' AND updated_at >= ?1)",
+            [cutoff],
+            |r| r.get(0),
+        )?)
+    }
+    /// Permanently erases this workspace on this device: every record (expenses,
+    /// claims, finance, business, sync state), receipt, generated report and the
+    /// stored AI credential, leaving an empty workspace with default settings.
+    /// The cloud copy is kept: the session is signed out first and the database
+    /// file is replaced rather than emptied, so no delete is queued for upload.
+    /// Copies the user saved elsewhere (an export folder, a share sheet) are theirs.
+    pub fn erase_all_data(&self) -> Result<()> {
+        if self.erase_blocked()? {
+            return Err(AppError::invalid(
+                "Folio is still reading a receipt or building a report. Try again when it finishes.",
+            ));
+        }
+        // Both secrets go first: if a vault refuses, nothing has been erased yet.
+        self.cloud_sign_out()?;
+        self.secrets.delete()?;
+        let path = self.paths.resolve("database/expenses.sqlite")?;
+        {
+            let mut db = self.conn()?;
+            // Closes the file; a fresh one is created and migrated below.
+            *db = rusqlite::Connection::open_in_memory()?;
+            for suffix in ["", "-wal", "-shm"] {
+                let file = path.with_file_name(format!("expenses.sqlite{suffix}"));
+                if file.exists() {
+                    std::fs::remove_file(&file)?;
+                }
+            }
+            *db = crate::db::open(&path)?;
+        }
+        self.initialize_finance()?;
+        self.initialize_cloud()?;
+        self.online_backoff().clear();
+        // Receipt folders are now unreferenced, so the startup cleanup removes them.
+        self.recover_storage()?;
+        // Reports, invoices, data archives (a full database copy) and staging folders.
+        for folder in ["exports", "cache"] {
+            let dir = self.paths.root.join(folder);
+            if dir.exists() {
+                std::fs::remove_dir_all(&dir).map_err(|_| {
+                    AppError::new(
+                        "StorageError",
+                        "Your records were erased, but a saved report could not be removed. Close any open Folio report and choose Erase all data again.",
+                    )
+                })?;
+            }
+        }
+        crate::storage::paths::AppPaths::new(self.paths.root.clone())?;
+        Ok(())
+    }
     pub fn app_info(&self) -> Result<AppInfo> {
         Ok(AppInfo {
             data_directory: self.paths.root.to_string_lossy().to_string(),
