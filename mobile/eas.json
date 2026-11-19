@@ -16,6 +16,15 @@
     "production": {
       "autoIncrement": true,
       "channel": "production"
+    },
+    "development-simulator": {
+      "extends": "development",
+      "ios": {
+        "simulator": true
+      },
+      "env": {
+        "FOLIO_IOS_SIM_X86": "1"
+      }
     }
   }
 }
