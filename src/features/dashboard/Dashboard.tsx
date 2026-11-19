@@ -9,7 +9,6 @@ import {
   Files,
   ArrowRight,
   CalendarDays,
-  ShieldCheck,
 } from 'lucide-react';
 import { useWorkspace } from '../../app/providers';
 import { PageHeader, Panel, TextLink, StatusBadge } from '../../components/ui';
@@ -101,6 +100,15 @@ export function Dashboard() {
           </>
         }
       />
+      <div className="finance-dashboard-entry">
+        <div>
+          <strong>Track your everyday finances</strong>
+          <p>Accounts, transactions, budgets, bills and business tools.</p>
+        </div>
+        <Link className="button secondary" to="/finance">
+          Open finance
+        </Link>
+      </div>
       <div className="period-row">
         <span>
           <CalendarDays size={14} />
@@ -127,7 +135,7 @@ export function Dashboard() {
           </Reveal>
         ))}
       </div>
-      {review.length > 0 ? (
+      {review.length > 0 && (
         <Link className="review-strip" to="/expenses?status=needs_review">
           <span className="review-strip-icon">
             <ScanLine size={18} />
@@ -143,20 +151,6 @@ export function Dashboard() {
             Review receipts <ArrowRight size={16} />
           </span>
         </Link>
-      ) : (
-        <div className="review-strip calm">
-          <span className="review-strip-icon">
-            <ShieldCheck size={18} />
-          </span>
-          <span>
-            <strong>A workspace that works offline</strong>
-            <span>
-              Import receipts, review expenses, and prepare claims. Everything is saved on this
-              device.
-            </span>
-          </span>
-          <span className="local-pill">LOCAL-FIRST</span>
-        </div>
       )}
       <div className="analytics-grid">
         <Panel

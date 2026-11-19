@@ -1,6 +1,6 @@
 # Folio mobile
 
-Expo (SDK 57) app that reuses the desktop React code from `../src` and the Rust core in
+Expo (SDK 58) app that reuses the desktop React code from `../src` and the Rust core in
 `../src-tauri` through the `modules/folio-core` native module. See `AGENTS.md` for the
 day-to-day commands and `migration-progress.md` for the migration status.
 

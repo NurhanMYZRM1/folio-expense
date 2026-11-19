@@ -171,7 +171,7 @@ fn migrations_are_idempotent_and_constraints_work() {
             |r| r.get(0),
         )
         .unwrap();
-    assert_eq!(count, 9);
+    assert_eq!(count, 35);
     let version: i32 = db
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
@@ -1500,6 +1500,10 @@ fn erase_all_data_leaves_an_empty_workspace_and_no_trace_of_records() {
     settings.employee = "Erasable Person".into();
     s.save_settings(settings).unwrap();
     s.set_credential("secret-key".into()).unwrap();
+    // Finance records live in the same database and go too.
+    let w = s.workspaces().unwrap().remove(0);
+    s.save_account(serde_json::from_value(serde_json::json!({"id":null,"version":null,"workspaceId":w.id,"name":"Erasable Savings","kind":"bank","currency":"MYR","openingBalanceMinor":500,"goalTargetMinor":null,"goalTargetDate":null,"loanDirection":null,"loanPrincipalMinor":null,"loanAnnualRate":null,"counterparty":null,"note":"","archived":false})).unwrap()).unwrap();
+    let data_export = s.export_all_data().unwrap();
     let on_disk = |s: &AppService| {
         ["database/expenses.sqlite", "database/expenses.sqlite-wal"]
             .iter()
@@ -1520,6 +1524,12 @@ fn erase_all_data_leaves_an_empty_workspace_and_no_trace_of_records() {
     assert!(!s.app_info().unwrap().credential_configured);
     assert_eq!(s.settings().unwrap().employee, "");
     assert!(!std::path::Path::new(&export.path).exists());
+    assert!(
+        !std::path::Path::new(&data_export.path).exists(),
+        "a data archive is a full copy of the database"
+    );
+    let w = s.workspaces().unwrap().remove(0);
+    assert!(s.accounts(&w.id).unwrap().is_empty());
     assert_eq!(
         fs::read_dir(s.paths.root.join("receipts")).unwrap().count(),
         0

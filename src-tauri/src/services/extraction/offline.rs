@@ -706,7 +706,11 @@ impl LocalOcrExtractor {
         if let Some((_, value)) = &premises {
             confidence.insert("premises".into(), f64::min(*value, cap));
         }
+        let (line_items, adjustments) =
+            super::items::parse(input.raw_text, &currency, input.ocr_confidence);
         Ok(Extraction {
+            line_items,
+            line_item_adjustments: Some(adjustments),
             merchant_name: merchant,
             date: date.map(|(d, _, _)| d),
             total_amount_minor: total,

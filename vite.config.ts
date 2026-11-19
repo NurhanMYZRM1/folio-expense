@@ -5,7 +5,18 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   clearScreen: false,
   optimizeDeps: { include: ['pdf-lib', '@pdf-lib/fontkit', 'pdfjs-dist', 'tesseract.js'] },
-  server: { port: 1420, strictPort: true },
+  server: {
+    port: 1420,
+    strictPort: true,
+    watch: {
+      ignored: [
+        '**/test-results/**',
+        '**/playwright-report/**',
+        '**/.claude/**',
+        '**/src-tauri/target/**',
+      ],
+    },
+  },
   envPrefix: ['VITE_'],
   build: { target: 'es2022' },
   worker: { format: 'es' },

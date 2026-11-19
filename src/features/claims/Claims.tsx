@@ -239,7 +239,7 @@ export function ClaimDetail() {
     await act(
       () => api.transitionClaim(claim.id, status),
       status === 'submitted'
-        ? 'Claim marked as submitted locally. No data was sent.'
+        ? 'Claim marked as submitted. No report was sent to anyone.'
         : 'Claim status updated.',
     );
   }

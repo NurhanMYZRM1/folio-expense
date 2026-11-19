@@ -9,10 +9,12 @@
     "scheme": "expenseapp",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "bundleIdentifier": "com.folio.expenses",
+      "bundleIdentifier": "com.nurhanfawwaz.folio",
       "supportsTablet": true,
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSSpeechRecognitionUsageDescription": "Folio transcribes a short transaction you dictate for your review. The speech service may process audio online.",
+        "NSMicrophoneUsageDescription": "Folio uses your microphone only while you dictate a transaction."
       },
       "privacyManifests": {
         "NSPrivacyAccessedAPITypes": [
@@ -44,8 +46,7 @@
         "expo-image-picker",
         {
           "photosPermission": "Folio imports receipt photos you choose into your local expense workspace.",
-          "cameraPermission": "Folio photographs receipts for your expense claims.",
-          "microphonePermission": false
+          "cameraPermission": "Folio photographs receipts for your expense claims."
         }
       ],
       [
@@ -56,7 +57,12 @@
           }
         }
       ],
-      "expo-asset"
+      "expo-asset",
+      "expo-notifications",
+      "expo-image",
+      "expo-sharing",
+      "expo-status-bar",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,

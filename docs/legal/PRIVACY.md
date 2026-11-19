@@ -1,5 +1,7 @@
 # Folio privacy policy (DRAFT)
 
+> **Out of date since PR #26 (cloud sync).** This was written when Folio had no accounts or backend. Folio now has optional sign-in (email, Google, Apple) and Supabase cloud sync of records and receipt files. Every statement below about "no account", "no cloud sync" or "nothing leaves the device" must be rewritten, and Supabase (and Google/Apple sign-in) added as recipients, before this is used.
+
 > **Draft, not reviewed by a lawyer.** It describes what Folio 0.1.0 does, checked against the source code on 5 November 2026. Replace every `[[…]]` placeholder and have it reviewed before you publish it. If the Personal Data Protection Act 2010 applies to you as Folio's publisher, section 7(3) requires the notice in both Bahasa Malaysia and English (see [the launch audit](../LAUNCH_AUDIT.md)).
 
 **Last updated:** [[date of publication]]

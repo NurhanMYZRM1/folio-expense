@@ -1,5 +1,7 @@
 # Launch audit: privacy, transparency, accessibility
 
+> **Out of date since PR #26 (cloud sync).** This was written when Folio had no accounts or backend. Folio now has optional sign-in (email, Google, Apple) and Supabase cloud sync of records and receipt files. Every statement below about "no account", "no cloud sync" or "nothing leaves the device" must be rewritten, and Supabase (and Google/Apple sign-in) added as recipients, before this is used.
+
 Audit date: 5 November 2026, against `main` at `126d459` plus the changes listed below. **This is an engineering audit, not legal advice.** Adding these policies does not make Folio legally compliant; the items under [Legal review](#items-for-legal-review) must be settled by a qualified Malaysian lawyer.
 
 ## What Folio is (verified in code)

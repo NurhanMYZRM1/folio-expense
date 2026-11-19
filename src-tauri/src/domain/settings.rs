@@ -18,6 +18,16 @@ pub struct Settings {
     /// exchange rates (only currency codes and a date are sent online).
     #[serde(default = "enabled")]
     pub currency_conversion_enabled: bool,
+    /// Bill and subscription reminders; each bill has its own switch too.
+    #[serde(default = "enabled")]
+    pub notify_bills: bool,
+    /// Budget alerts at each budget's threshold and at 100%.
+    #[serde(default = "enabled")]
+    pub notify_budgets: bool,
+    /// Android only: read bank and e-wallet notifications on this device to
+    /// suggest transactions for review. Off until the user turns it on.
+    #[serde(default)]
+    pub payment_alerts_enabled: bool,
 }
 fn enabled() -> bool {
     true
@@ -37,6 +47,9 @@ impl Default for Settings {
             company: String::new(),
             employee: String::new(),
             currency_conversion_enabled: true,
+            notify_bills: true,
+            notify_budgets: true,
+            payment_alerts_enabled: false,
         }
     }
 }

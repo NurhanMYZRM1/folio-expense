@@ -1,5 +1,7 @@
 # App Store submission materials (iPhone and iPad), DRAFT
 
+> **Out of date since PR #26 (cloud sync).** This was written when Folio had no accounts or backend. Folio now has optional sign-in (email, Google, Apple) and Supabase cloud sync of records and receipt files. Every statement below about "no account", "no cloud sync" or "nothing leaves the device" must be rewritten, and Supabase (and Google/Apple sign-in) added as recipients, before this is used.
+
 Drafted 5 November 2026 for Folio 0.1.0 (`mobile/`, bundle ID `com.folio.expenses`). Everything here is written from the app's verified behaviour; check it again against the build you upload. `[[…]]` marks facts only you can supply. **Each placeholder is a submission blocker.** Paste the text into App Store Connect yourself; nothing here has been submitted.
 
 ## App information

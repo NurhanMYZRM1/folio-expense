@@ -1,5 +1,7 @@
 # App Store review audit (iPhone and iPad)
 
+> **Out of date since PR #26 (cloud sync).** This was written when Folio had no accounts or backend. Folio now has optional sign-in (email, Google, Apple) and Supabase cloud sync of records and receipt files. Every statement below about "no account", "no cloud sync" or "nothing leaves the device" must be rewritten, and Supabase (and Google/Apple sign-in) added as recipients, before this is used.
+
 Audited 5 November 2026 against the [App Review Guidelines](https://developer.apple.com/app-store/review/guidelines/) (last updated 16 October 2026), Apple's [App privacy details](https://developer.apple.com/app-store/app-privacy-details/), [required-reason API](https://developer.apple.com/documentation/bundleresources/describing-use-of-required-reason-api), [encryption export](https://developer.apple.com/documentation/security/complying-with-encryption-export-regulations), [screenshot](https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications), [age rating](https://developer.apple.com/help/app-store-connect/reference/app-information/age-ratings-values-and-definitions) and [EU DSA trader](https://developer.apple.com/help/app-store-connect/manage-compliance-information/manage-european-union-digital-services-act-trader-requirements) pages. **Engineering audit only: it does not guarantee approval or legal compliance.**
 
 ## Verdict: Not ready for submission
@@ -10,7 +12,8 @@ The app itself is in good shape: it builds, launches, and its core flow works en
 2. **No support URL or contact details** (1.5, 5.6.2). Every `[[…]]` placeholder in `docs/legal/` and `docs/app-store/SUBMISSION.md` is a blocker.
 3. **App Privacy answers for the Expo update check** need confirming with Expo (5.1.2, 2.3).
 4. **Not tested on a physical device or in a release build** (2.1(a) asks for on-device testing).
-5. **Export compliance** answers for rustls, and the privacy policy's **third-party protection statement** (5.1.1(i)), need your decision.
+5. **In-app account deletion** (5.1.1(v)). Apps that let people create an account must let them delete it, and its cloud data, from inside the app. Folio now has sign-in, and **Erase all data** only erases this device (signing out and keeping the cloud copy). A "Delete account" flow that removes the Supabase user and its data is needed before submission.
+6. **Export compliance** answers for rustls, and the privacy policy's **third-party protection statement** (5.1.1(i)), need your decision.
 
 ## What Folio is (evidence)
 

@@ -15,6 +15,6 @@ Pod::Spec.new do |s|
   s.public_header_files = 'folio.h'
   # Built by `npm run rust:ios` (scripts/build-rust-ios.sh) from ../src-tauri.
   s.vendored_frameworks = 'Frameworks/FolioFFI.xcframework'
-  s.frameworks = 'Security', 'SystemConfiguration', 'CoreFoundation', 'Vision', 'PDFKit'
+  s.frameworks = 'Security', 'SystemConfiguration', 'CoreFoundation', 'Vision', 'PDFKit', 'Speech', 'AVFoundation'
   s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES' }
 end

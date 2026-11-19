@@ -39,6 +39,14 @@ const isBare = (name) => !name.startsWith(".") && !name.startsWith("/");
 const insideMobile = (file) => file.startsWith(projectRoot + path.sep);
 
 config.resolver.resolveRequest = (context, moduleName, platform) => {
+  // pdf-lib's older tslib package selects a Node ESM wrapper whose default
+  // import is undefined in Metro. Use the compatible ESM helpers directly.
+  if (moduleName === "tslib") {
+    return {
+      type: "sourceFile",
+      filePath: path.join(path.dirname(require.resolve("tslib/package.json")), "tslib.es6.js"),
+    };
+  }
   const shim = shims[moduleName];
   if (shim) return { type: "sourceFile", filePath: shim };
 
